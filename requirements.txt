@@ -1,0 +1,9 @@
+selenium
+tkinterdnd2
+pandas
+webdriver_manager
+pyperclip
+Pillow
+pyinstaller
+fastapi
+uvicorn

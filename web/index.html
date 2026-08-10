@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FB Marketplace Automation Hub</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="icon">🤖</span>
+        <h1>FB Marketplace Bot</h1>
+      </div>
+      <div class="status-badge" id="status-badge">Ready</div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+      <!-- Toolbar / Action Panels -->
+      <aside class="control-panel">
+
+        <!-- Run & Actions -->
+        <div class="panel-card primary-card">
+          <h2>Main Actions</h2>
+          <div class="btn-grid">
+            <button id="btn-run" class="btn btn-primary" onclick="runBot()">▶ Run Bot</button>
+            <button id="btn-distribute" class="btn btn-accent" onclick="runDistributeBot()">📤 Distribute
+              Accounts</button>
+            <button id="btn-failed" class="btn btn-warning" onclick="getFailedFields()">♻ Regen Failed</button>
+          </div>
+        </div>
+
+        <!-- Automation Settings -->
+        <div class="panel-card">
+          <h2>Settings</h2>
+          <div class="form-group">
+            <label>Select your marketplace location</label>
+            <select id="marketplace" class="input">
+              <option value="UK">United Kingdom (UK)</option>
+              <option value="Canada">Canada</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Delay Between Listings</label>
+            <div class="inline-inputs">
+              <input id="wait-value" class="input" type="number" min="0" max="60" value="2" />
+              <select id="wait-unit" class="input">
+                <option value="seconds">Seconds</option>
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+              </select>
+            </div>
+          </div>
+            <div class="form-group">
+            <label>Delay Between Each Accounts</label>
+            <div class="inline-inputs">
+              <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
+              <select id="wait-unit-account" class="input">
+                <option value="seconds">Seconds</option>
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Listing Defaults -->
+        <div class="panel-card">
+          <h2>Listing Defaults</h2>
+          <div class="form-group">
+            <label>Default Category</label>
+            <input id="default-category" class="input" type="text" value="Furniture" />
+          </div>
+          <div class="form-group">
+            <label>Default Condition</label>
+            <select id="default-condition" class="input">
+              <option value="New" selected>New</option>
+              <option value="Used - Like New">Used - Like New</option>
+              <option value="Used - Good">Used - Good</option>
+              <option value="Used - Fair">Used - Fair</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Default Availability</label>
+            <select id="default-availability" class="input">
+              <option value="List as In Stock" selected>List as In Stock</option>
+              <option value="List as Single Item">List as Single Item</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Default Price Range</label>
+            <div class="inline-inputs">
+              <input id="default-price-min" class="input" type="number" min="0" value="80" placeholder="Min" />
+              <span style="color:var(--text-muted);padding:0 4px;">–</span>
+              <input id="default-price-max" class="input" type="number" min="0" value="100" placeholder="Max" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Default Delivery</label>
+            <div class="checkbox-row">
+              <label class="checkbox-item"><input type="checkbox" id="default-meetup" /> Public meetup</label>
+              <label class="checkbox-item"><input type="checkbox" id="default-pickup" /> Door pickup</label>
+              <label class="checkbox-item"><input type="checkbox" id="default-dropoff" checked /> Door dropoff</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Location Pool <span style="font-size:11px;color:var(--text-muted);">(pipe-separated, bot picks randomly)</span></label>
+            <textarea id="location-pool" class="input" rows="2" placeholder="London|Manchester|Birmingham|Leeds"></textarea>
+          </div>
+        </div>
+
+        <!-- Quick Maintenance -->
+        <div class="panel-card">
+          <h2>Batch Ops</h2>
+          <div class="batch-row">
+            <div class="batch-item">
+              <label>Renew Count</label>
+              <div class="batch-controls">
+                <input id="renew-count" class="input" type="number" min="1" max="100" value="2" />
+                <button id="btn-renew" class="btn btn-secondary" onclick="renewListings()">Renew</button>
+              </div>
+            </div>
+            <div class="batch-item">
+              <label>Relist Count</label>
+              <div class="batch-controls">
+                <input id="delete-relist-count" class="input" type="number" min="1" max="100" value="2" />
+                <button id="btn-delete-relist" class="btn btn-danger" onclick="deleteAndRelist()">Relist</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Accounts & Proxies -->
+        <div class="panel-card">
+          <h2>Accounts & Proxies</h2>
+          <div class="btn-grid">
+            <button id="btn-accounts" class="btn btn-primary" onclick="loadAccountsModal()">👤 Manage Accounts</button>
+          </div>
+        </div>
+
+        <!-- Preset & Quick Creator -->
+        <div class="panel-card">
+          <h2>Presets & Session</h2>
+          <div class="btn-grid">
+            <button id="btn-save-session-side" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
+            <button id="btn-save-quick" class="btn btn-accent" onclick="openSaveQuicklyModal()">⚡ Batch Add Text</button>
+            <div class="btn-grid-2">
+              <button id="btn-save-fields" class="btn btn-secondary" onclick="saveAllFields()">💾 Save Preset</button>
+              <button id="btn-load-fields" class="btn btn-secondary" onclick="loadSavedFields()">📂 Load Presets</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Content Area (Product Cards) -->
+      <section class="content-area">
+        <div class="content-header">
+          <h2>Product Listings (<span id="product-count">0</span>)</h2>
+          <div class="header-actions" style="display:flex;gap:8px;align-items:center;">
+            <span id="save-indicator" style="font-size:12px;color:var(--text-muted);margin-right:8px;transition:opacity 0.3s;">Saved</span>
+            <button id="btn-save-session" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
+            <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">⏹ Stop All Tasks</button>
+            <button id="btn-add" class="btn btn-success" onclick="addField()">➕ Add New Product</button>
+          </div>
+        </div>
+
+        <div id="entries-list" class="entries-list"></div>
+
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">📦</div>
+          <h3>No Product Listings Added</h3>
+          <p>Click "Add New Product" or use "Batch Add Text" for bulk text setup.</p>
+          <button class="btn btn-success" onclick="addField()">➕ Add First Product</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Modals -->
+
+  <!-- Account Manager Modal -->
+  <div id="modal-accounts" class="modal-overlay hidden">
+    <div class="modal modal-lg">
+      <h3>👤 Account Profiles & Proxies Manager</h3>
+      <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <input id="acc-email-input" class="input" type="email" placeholder="Email / Account ID..." style="flex: 2;" />
+        <input id="acc-pass-input" class="input" type="password" placeholder="FB Password..." style="flex: 1.5;" />
+        <input id="acc-phone-input" class="input" type="text" placeholder="Phone..." style="flex: 1;" />
+        <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy (host:port or http://user:pass@host:port)..." style="flex: 2;" />
+        <button class="btn btn-success" onclick="saveAccountFromUI()">💾 Save Profile</button>
+      </div>
+      <div id="accounts-list-container" class="saved-list" style="max-height: 250px; overflow-y: auto;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Field Quickly (Bulk Text Modal) -->
+  <div id="modal-quick-save" class="modal-overlay hidden">
+    <div class="modal modal-xl">
+      <h3>⚡ Save Field Quickly (Batch Text Input)</h3>
+      <p class="modal-subtitle">Type items line-by-line for multi-item creation. Descriptions separated by
+        <code>|||</code>.</p>
+
+      <div class="quick-grid">
+        <div class="form-group">
+          <label>Titles (one per line)</label>
+          <textarea id="quick-titles" class="input" rows="3" placeholder="Sofa 1&#10;Sofa 2&#10;Table 1"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Categories (one per line)</label>
+          <textarea id="quick-categories" class="input" rows="3"
+            placeholder="Furniture&#10;Furniture&#10;Furniture"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Prices (one per line)</label>
+          <textarea id="quick-prices" class="input" rows="3" placeholder="100&#10;150&#10;80"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Locations (one per line)</label>
+          <textarea id="quick-locations" class="input" rows="3"
+            placeholder="London&#10;Manchester&#10;Birmingham"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Conditions (one per line)</label>
+          <textarea id="quick-conditions" class="input" rows="3"
+            placeholder="Used - Like New&#10;New&#10;Used - Good"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Availability (one per line)</label>
+          <textarea id="quick-availabilities" class="input" rows="3"
+            placeholder="In Stock&#10;In Stock&#10;Single Item"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Tags (one product's tags per line)</label>
+          <textarea id="quick-tags" class="input" rows="3"
+            placeholder="sofa, couch, living&#10;sofa, modern&#10;table, wood"></textarea>
+        </div>
+
+        <!-- Quick Images with Browse button -->
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <label style="margin:0;">Image</label>
+            <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;"
+              onclick="triggerQuickImageBrowse()">📁 Browse Images</button>
+          </div>
+          <textarea id="quick-images" class="input" rows="3"
+            placeholder="img1.jpg, img2.jpg&#10;img3.jpg&#10;img4.jpg, img5.jpg"></textarea>
+        </div>
+
+        <!-- Quick Video with Browse button -->
+        <div class="form-group full-width-span">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <label style="margin:0;">Videos (one video path/URL per line)</label>
+            <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;"
+              onclick="triggerQuickVideoBrowse()">🎥 Browse Videos</button>
+          </div>
+          <textarea id="quick-videos" class="input" rows="2" placeholder="video1.mp4&#10;video2.mp4"></textarea>
+        </div>
+
+        <div class="form-group full-width-span">
+          <label>Descriptions (separate items with |||)</label>
+          <textarea id="quick-descriptions" class="input" rows="3"
+            placeholder="Good condition sofa.|||Brand new velvet sofa.|||Oak wood table."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-success" onclick="applyQuickFieldsToUI()">📥 Generate Into UI</button>
+        <button class="btn btn-primary" onclick="saveQuickFieldsToPreset()">💾 Save Direct Preset</button>
+        <button class="btn btn-ghost" onclick="closeModal('modal-quick-save')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Lightbox Modal -->
+  <div id="modal-lightbox" class="modal-overlay hidden" onclick="closeModal('modal-lightbox')">
+    <div class="lightbox-content" onclick="event.stopPropagation()">
+      <button class="lightbox-close" onclick="closeModal('modal-lightbox')">✕</button>
+      <img id="lightbox-img" src="" alt="Expanded Image Preview" />
+    </div>
+  </div>
+
+  <!-- Save Preset Modal -->
+  <div id="modal-save" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>Save Preset As</h3>
+      <div class="form-group">
+        <input id="save-name-input" class="input" type="text" placeholder="Preset Name (e.g. Sofa_Listings_UK)..." />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="confirmSave()">Save Preset</button>
+        <button class="btn btn-ghost" onclick="closeModal('modal-save')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Preset Modal -->
+  <div id="modal-load" class="modal-overlay hidden">
+    <div class="modal modal-lg">
+      <h3>Load Saved Preset</h3>
+      <div id="saved-states-list" class="saved-list"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('modal-load')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Failed Modal -->
+  <div id="modal-failed" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 style="color: var(--danger-color)">❌ Failed Listings Summary</h3>
+      <div id="failed-list-content" class="failed-list"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('modal-failed')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+  <script src="UI.js"></script>
+</body>
+
+</html>

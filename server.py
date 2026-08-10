@@ -1,0 +1,478 @@
+import os
+import ast
+import shutil
+import tkinter as tk
+from tkinter import filedialog
+import pandas as pd
+from typing import List, Dict, Any, Optional
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from save_state_screen import get_failed_fields,run_bot
+from Open_fb import main as run_fb_bot, distribute_among_accounts
+from renew import main as renew_main
+from save_state_screen import main as save_state_main
+from Assets.Files.SaveFiles.SaveFile import add_to_prev
+import asyncio
+
+app = FastAPI(title="Facebook Marketplace Bot Backend")
+
+# Enable CORS for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ── Adapter Classes to Emulate Tkinter Control Interfaces ───────────────────
+class SimpleGetter:
+    def __init__(self, value: Any):
+        self._value = value
+
+    def get(self, *args, **kwargs) -> Any:
+        return self._value
+
+
+class TextGetter:
+    def __init__(self, value: str):
+        self._value = value
+
+    def get(self, index1="1.0", index2="end") -> str:
+        return str(self._value)
+
+
+class EntryAdapter:
+    """
+    Emulates the entry tuple structure returned by Tkinter UI:
+    (img_entries, title_entry, description_entry, category_entry, location_entry,
+     tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars)
+    """
+    def __init__(self, data: dict):
+        images = data.get("images", [])
+        if not isinstance(images, list):
+            images = [images] if images else []
+
+        self.img_entries = [SimpleGetter(str(img)) for img in images]
+        self.title_entry = SimpleGetter(str(data.get("title", "")))
+        self.description_entry = TextGetter(str(data.get("description", "")))
+        self.category_entry = SimpleGetter(str(data.get("category", "")))
+        self.location_entry = SimpleGetter(str(data.get("location", "")))
+        
+        tags = data.get("tags", [])
+        if isinstance(tags, list):
+            tags_str = ",".join(str(t) for t in tags)
+        else:
+            tags_str = str(tags)
+        self.tags_entry = SimpleGetter(tags_str)
+
+        self.price_entry = SimpleGetter(str(data.get("price", "0")))
+        self.condition_entry = SimpleGetter(str(data.get("condition", "")))
+        self.availability_entry = SimpleGetter(str(data.get("availability", "")))
+        self.video_entry = SimpleGetter(str(data.get("video", "")))
+        self.wrapper = None
+        self.opt_vars = [
+            SimpleGetter(int(data.get("public_meetup", 0))),
+            SimpleGetter(int(data.get("door_pickup", 0))),
+            SimpleGetter(int(data.get("door_dropoff", 0))),
+        ]
+
+    def __getitem__(self, idx: int):
+        items = [
+            self.img_entries,
+            self.title_entry,
+            self.description_entry,
+            self.category_entry,
+            self.location_entry,
+            self.tags_entry,
+            self.price_entry,
+            self.condition_entry,
+            self.availability_entry,
+            self.video_entry,
+            self.wrapper,
+            self.opt_vars,
+        ]
+        return items[idx]
+
+
+# ── Pydantic Request Models ────────────────────────────────────────────────
+class ListingItem(BaseModel):
+    images: List[str] = []
+    video: Optional[str] = ""
+    title: str = ""
+    category: str = ""
+    price: Any = "0"
+    location: str = ""
+    condition: str = ""
+    availability: str = ""
+    tags: List[str] = []
+    description: str = ""
+    public_meetup: int = 0
+    door_pickup: int = 0
+    door_dropoff: int = 0
+
+
+class BotRunRequest(BaseModel):
+    listings: List[ListingItem]
+    wait_time: int = 2
+    wait_time_accounts: int = 2
+    marketplace: str = "UK"
+
+
+class CountRequest(BaseModel):
+    count: int = 2
+
+
+class SavePresetRequest(BaseModel):
+    name: str
+    fields: List[Dict[str, Any]]
+
+
+class SaveSessionRequest(BaseModel):
+    state: Dict[str, Any]
+
+
+SESSION_FILE = os.path.join(os.path.dirname(__file__), "session_state.json")
+
+
+@app.post("/save-session")
+def api_save_session(req: SaveSessionRequest):
+    try:
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump(req.state, f, indent=2)
+        return {"status": "success", "message": "Session saved successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/load-session")
+def api_load_session():
+    if os.path.exists(SESSION_FILE):
+        try:
+            with open(SESSION_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {"status": "success", "state": data}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "state": None}
+    return {"status": "success", "state": None}
+
+import threading
+# ── Task Execution Handlers ─────────────────────────────────────────────────
+def run_bot_task(entries_data: List[dict], wait_time: int, wait_time_accounts: int, marketplace: str,stop_event: threading.Event):
+    adapted_entries = [EntryAdapter(item) for item in entries_data]
+    run_fb_bot(adapted_entries, time_sleep=wait_time,wait_time_accounts=wait_time_accounts, marketplace_location=marketplace,stop_event=stop_event)
+
+
+def run_distribute_task(entries_data: List[dict], wait_time: int, marketplace: str):
+    adapted_entries = [EntryAdapter(item) for item in entries_data]
+    distribute_among_accounts(adapted_entries, time_sleep=wait_time, marketplace_location=marketplace)
+
+
+# ── Endpoints ───────────────────────────────────────────────────────────────
+# ── Endpoints ───────────────────────────────────────────────────────────────
+import math
+
+def clean_nan(obj):
+    if isinstance(obj, float) and math.isnan(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: clean_nan(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean_nan(v) for v in obj]
+    return obj
+
+@app.post('/getfailedfields')
+def get_failed_fields_endpoint():
+    try:
+        failed_fields = get_failed_fields()
+        failed_fields = clean_nan(failed_fields)
+        return {"status": "success", "failed_fields": failed_fields}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+import threading
+
+current_background_tasks: list[threading.Thread] = []
+stop_event = threading.Event()
+
+@app.post("/run-bot")
+def api_run_bot(req: BotRunRequest):
+    entries_data = [item.dict() for item in req.listings]
+    global current_background_tasks, stop_event
+    stop_event.clear()
+
+    t = threading.Thread(
+        target=run_bot_task,
+        args=(entries_data, req.wait_time, req.wait_time_accounts, req.marketplace, stop_event),
+        daemon=True,
+    )
+    current_background_tasks.append(t)
+    t.start()
+    return {"status": "started", "message": "Bot execution started in background."}
+
+@app.post("/end-tasks")
+def end_tasks():
+    global current_background_tasks, stop_event
+    stop_event.set()
+    current_background_tasks = []
+    return {"status": "success", "message": "Stop signal sent."}
+
+
+@app.post("/distribute-bot")
+def api_distribute_bot(req: BotRunRequest, background_tasks: BackgroundTasks):
+    entries_data = [item.dict() for item in req.listings]
+    background_tasks.add_task(run_distribute_task, entries_data, req.wait_time, req.marketplace)
+    return {"status": "started", "message": "Distribution bot execution started in background."}
+
+
+@app.post("/renew")
+def api_renew(req: CountRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(renew_main, req.count, "renew")
+    return {"status": "started", "message": f"Renew listings ({req.count}) started in background."}
+
+
+@app.post("/delete-relist")
+def api_delete_relist(req: CountRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(renew_main, req.count, "relist")
+    return {"status": "started", "message": f"Delete & relist ({req.count}) started in background."}
+
+
+@app.post("/run-failed")
+def api_run_failed(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_bot)
+    return {"status": "started", "message": "Regenerating failed listings started in background."}
+
+
+class AccountProfile(BaseModel):
+    email: str
+    phone: Optional[str] = ""
+    password: Optional[str] = ""
+    proxy: Optional[str] = ""
+
+
+class LoginSessionRequest(BaseModel):
+    email: str
+    password: Optional[str] = ""
+    proxy: Optional[str] = ""
+
+
+@app.get("/accounts")
+def get_accounts():
+    from login_profile import load_emails_df, is_account_authenticated
+    df = load_emails_df()
+    accounts = []
+    for row in df.to_dict(orient="records"):
+        email = row.get("email", "")
+        phone = row.get("phone", "")
+        row["authenticated"] = is_account_authenticated(email, phone)
+        accounts.append(row)
+    return {"accounts": accounts}
+
+
+@app.post("/accounts")
+def save_account(acc: AccountProfile):
+    from login_profile import load_emails_df, email_to_safe
+    df = load_emails_df()
+    email_val = acc.email.strip()
+    if not email_val:
+        raise HTTPException(status_code=400, detail="Email is required.")
+    
+    phone_val = acc.phone.strip() if acc.phone else ""
+    pass_val = acc.password.strip() if acc.password else ""
+    proxy_val = acc.proxy.strip() if acc.proxy else ""
+
+    if email_val in df['email'].values:
+        df.loc[df['email'] == email_val, 'phone'] = phone_val
+        df.loc[df['email'] == email_val, 'password'] = pass_val
+        df.loc[df['email'] == email_val, 'proxy'] = proxy_val
+    else:
+        new_row = {'email': email_val, 'phone': phone_val, 'password': pass_val, 'proxy': proxy_val}
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+    df.to_csv('emails.csv', index=False)
+    safe_email = email_to_safe(email_val, phone_val)
+    from pathlib import Path
+    profile_dir = Path("profiles") / safe_email
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return {"status": "success", "message": f"Account '{email_val}' saved."}
+
+
+@app.post("/login-session")
+def api_login_session(req: LoginSessionRequest, background_tasks: BackgroundTasks):
+    from login_profile import auto_login_session
+    background_tasks.add_task(auto_login_session, req.email, req.password or "", req.proxy or "")
+    return {"status": "started", "message": f"Auto-login session started for '{req.email}'."}
+
+
+@app.delete("/accounts")
+def delete_account(email: str = Query(...)):
+    from login_profile import load_emails_df, email_to_safe
+    df = load_emails_df()
+    if email not in df['email'].values:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    
+    phone_row = df.loc[df['email'] == email, 'phone'].values
+    phone_val = phone_row[0] if len(phone_row) > 0 else ""
+
+    df = df[df['email'] != email].reset_index(drop=True)
+    df.to_csv('emails.csv', index=False)
+
+    from pathlib import Path
+    profile_dir = Path("profiles") / email_to_safe(email, phone_val)
+    if profile_dir.exists():
+        try:
+            shutil.rmtree(profile_dir)
+        except Exception:
+            pass
+    return {"status": "success", "message": f"Account '{email}' deleted."}
+
+
+@app.get("/saved-states")
+def api_saved_states():
+    dir_path = "./saved_states"
+    if not os.path.exists(dir_path):
+        return {"states": []}
+    files = [f[:-4] for f in os.listdir(dir_path) if f.endswith(".csv")]
+    return {"states": files}
+
+
+@app.post("/save-fields")
+def api_save_fields(req: SavePresetRequest):
+    df_rows = []
+    for f in req.fields:
+        images = f.get("images", [])
+        tags = f.get("tags", [])
+        df_rows.append({
+            "Images": images if isinstance(images, list) else [images],
+            "Title": f.get("title", ""),
+            "Description": f.get("description", ""),
+            "Category": f.get("category", ""),
+            "Location": f.get("location", ""),
+            "Tags": tags if isinstance(tags, list) else [tags],
+            "Price": f.get("price", "0"),
+            "Condition": f.get("condition", ""),
+            "Availability": f.get("availability", ""),
+            "Video": f.get("video", ""),
+            "Public meetup": f.get("public_meetup", 0),
+            "Door pickup": f.get("door_pickup", 0),
+            "Door dropoff": f.get("door_dropoff", 0),
+        })
+
+    df = pd.DataFrame(df_rows)
+    add_to_prev(df, req.name)
+    return {"status": "success", "message": f"Preset '{req.name}' saved successfully."}
+
+
+@app.get("/load-fields")
+def api_load_fields(name: str = Query(...)):
+    filename = f"./saved_states/{name}.csv"
+    if not os.path.exists(filename):
+        raise HTTPException(status_code=404, detail="Preset file not found.")
+
+    df = pd.read_csv(filename)
+    for col in ["Images", "Tags"]:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.strip() else (x if isinstance(x, list) else []))
+
+    if "Video" not in df.columns:
+        df["Video"] = ""
+    else:
+        df["Video"] = df["Video"].fillna("")
+
+    fields = []
+    for _, row in df.iterrows():
+        fields.append({
+            "images": row["Images"] if isinstance(row["Images"], list) else [],
+            "title": str(row.get("Title", "")),
+            "description": str(row.get("Description", "")),
+            "category": str(row.get("Category", "")),
+            "location": str(row.get("Location", "")),
+            "tags": row["Tags"] if isinstance(row["Tags"], list) else [],
+            "price": row.get("Price", "0"),
+            "condition": str(row.get("Condition", "")),
+            "availability": str(row.get("Availability", "")),
+            "video": str(row.get("Video", "")),
+            "public_meetup": int(row.get("Public meetup", 0)) if not pd.isna(row.get("Public meetup")) else 0,
+            "door_pickup": int(row.get("Door pickup", 0)) if not pd.isna(row.get("Door pickup")) else 0,
+            "door_dropoff": int(row.get("Door dropoff", 0)) if not pd.isna(row.get("Door dropoff")) else 0,
+        })
+
+    return {"fields": fields}
+
+
+# ── Native OS File Dialog Helper & Browsing Endpoints ──────────────────────
+def open_native_file_dialog(multiple: bool = True) -> List[str]:
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        if multiple:
+            files = filedialog.askopenfilenames(
+                title="Select Image Files",
+                filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.gif"), ("All Files", "*.*")]
+            )
+            root.destroy()
+            return list(files) if files else []
+        else:
+            file_path = filedialog.askopenfilename(
+                title="Select Video File",
+                filetypes=[("Video Files", "*.mp4 *.mov *.avi *.mkv *.webm"), ("All Files", "*.*")]
+            )
+            root.destroy()
+            return [file_path] if file_path else []
+    except Exception as e:
+        print(f"File dialog error: {e}")
+        return []
+
+
+@app.get("/browse-files")
+def api_browse_files():
+    paths = open_native_file_dialog(multiple=True)
+    return {"paths": paths}
+
+
+@app.get("/browse-video")
+def api_browse_video():
+    paths = open_native_file_dialog(multiple=False)
+    return {"path": paths[0] if paths else ""}
+
+
+@app.post("/upload-file")
+async def api_upload_file(file: UploadFile = File(...)):
+    uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    file_path = os.path.join(uploads_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"path": os.path.abspath(file_path)}
+
+
+@app.get("/media-preview")
+def api_media_preview(path: str = Query(...)):
+    if os.path.exists(path) and os.path.isfile(path):
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="File not found")
+
+
+# ── Serve Static Web Frontend ───────────────────────────────────────────────
+web_dir = os.path.join(os.path.dirname(__file__), "web")
+if os.path.exists(web_dir):
+    app.mount("/static", StaticFiles(directory=web_dir), name="static")
+
+    @app.get("/")
+    def read_index():
+        return FileResponse(os.path.join(web_dir, "index.html"))
+
+    @app.get("/{file_name}")
+    def read_static_file(file_name: str):
+        file_path = os.path.join(web_dir, file_name)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(web_dir, "index.html"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
