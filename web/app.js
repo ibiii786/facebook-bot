@@ -58,6 +58,8 @@ function getMarketplace() {
 function updateCount() {
   const countEl = document.getElementById('product-count');
   if (countEl) countEl.textContent = entries.length;
+  const statCountEl = document.getElementById('stat-count');
+  if (statCountEl) statCountEl.textContent = entries.length;
   updateEmptyState();
 }
 

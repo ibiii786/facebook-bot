@@ -4,19 +4,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FB Marketplace Automation Hub Pro</title>
+  <title>FB Marketplace Bot — Pro Dashboard</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
   <div class="app-layout">
-    <!-- Header -->
+    <!-- Header Navbar -->
     <header class="app-header">
       <div class="brand">
-        <span class="icon">⚡</span>
-        <h1>FB Marketplace Bot Pro</h1>
+        <div class="brand-logo">⚡</div>
+        <div>
+          <h1>FB Marketplace Bot<span class="badge-ver">v3.0 PRO</span></h1>
+        </div>
       </div>
       <div class="header-right">
+        <div class="metric-pill">
+          <span class="dot"></span>
+          <span>System Status: Active</span>
+        </div>
         <span id="save-indicator" style="font-size:12px;color:var(--text-muted);transition:opacity 0.3s;">Saved</span>
         <button id="btn-policy-check" class="btn btn-secondary" style="font-size:12px;" onclick="runPolicyGuardCheck()">🛡️ Policy Guard</button>
         <div class="status-badge" id="status-badge">Ready</div>
@@ -30,7 +36,7 @@
 
         <!-- Run & Actions -->
         <div class="panel-card primary-card">
-          <h2>Main Actions</h2>
+          <h2>⚡ Main Actions</h2>
           <div class="btn-grid">
             <button id="btn-run" class="btn btn-primary" onclick="runBot()">▶ Run Bot</button>
             <button id="btn-distribute" class="btn btn-accent" onclick="runDistributeBot()">📤 Distribute Accounts</button>
@@ -40,7 +46,7 @@
 
         <!-- Automation Settings -->
         <div class="panel-card">
-          <h2>Automation Settings</h2>
+          <h2>⚙️ Automation Settings</h2>
           <div class="form-group">
             <label>Marketplace Location</label>
             <select id="marketplace" class="input">
@@ -74,7 +80,7 @@
 
         <!-- Listing Defaults -->
         <div class="panel-card">
-          <h2>Listing Defaults</h2>
+          <h2>🎯 Listing Defaults</h2>
           <div class="form-group">
             <label>Default Category</label>
             <input id="default-category" class="input" type="text" value="Furniture" />
@@ -117,9 +123,9 @@
           </div>
         </div>
 
-        <!-- Presets & Bulk Import -->
+        <!-- Presets & Bulk Suite -->
         <div class="panel-card">
-          <h2>Presets & Bulk Suite</h2>
+          <h2>📊 Presets & Bulk Suite</h2>
           <div class="btn-grid">
             <button id="btn-save-session-side" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
             <button id="btn-import-csv" class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
@@ -136,7 +142,7 @@
 
         <!-- Accounts & Proxies -->
         <div class="panel-card">
-          <h2>Accounts & Proxies</h2>
+          <h2>👥 Accounts & Proxies</h2>
           <div class="btn-grid">
             <button id="btn-accounts" class="btn btn-primary" onclick="loadAccountsModal()">👤 Manage Accounts</button>
           </div>
@@ -144,7 +150,7 @@
 
         <!-- Batch Maintenance -->
         <div class="panel-card">
-          <h2>Maintenance Ops</h2>
+          <h2>🔧 Maintenance Ops</h2>
           <div class="batch-row">
             <div class="batch-item">
               <label>Renew Count</label>
@@ -167,9 +173,34 @@
 
       <!-- Content Area (Product Cards) -->
       <section class="content-area">
+        <!-- Stats Overview Bar -->
+        <div class="stats-bar">
+          <div class="stat-card">
+            <div class="stat-icon">📦</div>
+            <div class="stat-info">
+              <div class="stat-val" id="stat-count">0</div>
+              <div class="stat-lbl">Active Listings</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🛡️</div>
+            <div class="stat-info">
+              <div class="stat-val" style="color:#34d399;">100%</div>
+              <div class="stat-lbl">Policy Health Score</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <div class="stat-val" style="color:#60a5fa;">Active</div>
+              <div class="stat-lbl">React NativeSetter</div>
+            </div>
+          </div>
+        </div>
+
         <div class="content-header">
           <h2>Product Listings (<span id="product-count">0</span>)</h2>
-          <div class="header-actions" style="display:flex;gap:8px;align-items:center;">
+          <div class="header-actions" style="display:flex;gap:10px;align-items:center;">
             <button id="btn-save-session" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
             <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">⏹ Stop All Tasks</button>
             <button id="btn-add" class="btn btn-success" onclick="addField()">➕ Add New Product</button>
@@ -181,8 +212,8 @@
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">📦</div>
           <h3>No Product Listings Added</h3>
-          <p>Click "Add New Product", drag-and-drop a CSV spreadsheet, or use "Folder Auto-Gen" to create listings.</p>
-          <div style="display:flex;gap:10px;margin-top:8px;">
+          <p>Click "Add New Product", drag-and-drop a CSV spreadsheet, or use "Folder Auto-Gen" to populate your listings.</p>
+          <div style="display:flex;gap:12px;margin-top:10px;">
             <button class="btn btn-success" onclick="addField()">➕ Add First Product</button>
             <button class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
           </div>
@@ -200,9 +231,9 @@
   <div id="modal-folder-gen" class="modal-overlay hidden">
     <div class="modal-card">
       <h3>📁 Folder Auto-Generator</h3>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:14px;">
-        Select or enter a folder path containing photo sub-folders (e.g. <code>C:/MyListings/Sofa/</code>).
-        The bot will create a product listing card for each folder with photos pre-filled!
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">
+        Select or enter a folder path containing photo sub-folders (e.g. <code>D:/MyListings/Sofa/</code>).
+        The bot will create a product listing card for each folder with photo paths pre-filled!
       </p>
       <div class="form-group">
         <label>Listings Parent Directory Path</label>
@@ -222,7 +253,7 @@
   <div id="modal-batch-edit" class="modal-overlay hidden">
     <div class="modal-card">
       <h3>✏️ Global Batch Editor</h3>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:14px;">
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">
         Apply edits across ALL active product listing cards at once.
       </p>
       <div class="fields-grid-3">
@@ -267,7 +298,7 @@
   <div id="modal-quick-save" class="modal-overlay hidden">
     <div class="modal-card">
       <h3>⚡ Batch Add Text (Multi-Line Input)</h3>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Paste values line-by-line (one line per product). Use <code>|||</code> to separate multi-line descriptions.</p>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">Paste values line-by-line (one line per product). Use <code>|||</code> to separate multi-line descriptions.</p>
       <div class="fields-grid-3">
         <div class="form-group"><label>Titles</label><textarea id="quick-titles" class="input" rows="3" placeholder="Sofa 1&#10;Table 2"></textarea></div>
         <div class="form-group"><label>Categories</label><textarea id="quick-categories" class="input" rows="3" placeholder="Furniture&#10;Home & Kitchen"></textarea></div>
@@ -342,7 +373,7 @@
         </div>
         <button class="btn btn-success" style="margin-top:8px;" onclick="saveAccountFromUI()">💾 Save Profile</button>
       </div>
-      <h4 style="margin-top:16px;margin-bottom:8px;font-size:14px;">Saved Accounts</h4>
+      <h4 style="margin-top:18px;margin-bottom:10px;font-size:14px;">Saved Accounts</h4>
       <div id="accounts-list-container" class="saved-list" style="max-height: 250px; overflow-y: auto;"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
