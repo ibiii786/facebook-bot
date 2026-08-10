@@ -272,3 +272,23 @@ async function deleteAccountAPI(email) {
   if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
   return res.json();
 }
+
+// ── Bulk & Folder API Helpers ──────────────────────────────────────────────
+async function importCSVAPI(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE_URL}/import-csv`, { method: 'POST', body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'CSV Import failed');
+  }
+  return res.json();
+}
+
+async function scanFolderAPI(folderPath) {
+  return await apiPost('/scan-folder', { folder_path: folderPath });
+}
+
+function downloadCSVTemplate() {
+  window.open(`${BASE_URL}/download-template`, '_blank');
+}

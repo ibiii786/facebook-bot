@@ -365,6 +365,156 @@ def api_save_fields(req: SavePresetRequest):
     return {"status": "success", "message": f"Preset '{req.name}' saved successfully."}
 
 
+# ── Bulk Import/Export & Folder Auto-Gen Endpoints ─────────────────────────
+
+class ScanFolderRequest(BaseModel):
+    folder_path: str
+
+
+@app.post("/import-csv")
+async def api_import_csv(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        filename = file.filename.lower()
+        if filename.endswith(".xlsx") or filename.endswith(".xls"):
+            import io
+            df = pd.read_excel(io.BytesIO(contents))
+        else:
+            import io
+            df = pd.read_csv(io.BytesIO(contents))
+
+        fields = []
+        for _, row in df.iterrows():
+            raw_imgs = str(row.get("Images", row.get("images", "")))
+            if raw_imgs.startswith("[") and raw_imgs.endswith("]"):
+                try:
+                    imgs = ast.literal_eval(raw_imgs)
+                except Exception:
+                    imgs = [s.strip() for s in raw_imgs.strip("[]").split(",") if s.strip()]
+            else:
+                imgs = [s.strip() for s in raw_imgs.split("|") if s.strip()] or [s.strip() for s in raw_imgs.split(",") if s.strip()]
+
+            raw_tags = str(row.get("Tags", row.get("tags", "")))
+            if raw_tags.startswith("[") and raw_tags.endswith("]"):
+                try:
+                    tags = ast.literal_eval(raw_tags)
+                except Exception:
+                    tags = [s.strip() for s in raw_tags.strip("[]").split(",") if s.strip()]
+            else:
+                tags = [s.strip() for s in raw_tags.split(",") if s.strip()]
+
+            fields.append({
+                "title": str(row.get("Title", row.get("title", ""))),
+                "description": str(row.get("Description", row.get("description", ""))),
+                "category": str(row.get("Category", row.get("category", "Furniture"))),
+                "price": str(row.get("Price", row.get("price", "85"))),
+                "location": str(row.get("Location", row.get("location", ""))),
+                "condition": str(row.get("Condition", row.get("condition", "New"))),
+                "availability": str(row.get("Availability", row.get("availability", "List as In Stock"))),
+                "tags": tags,
+                "images": imgs,
+                "video": str(row.get("Video", row.get("video", ""))),
+                "public_meetup": 1 if str(row.get("Public meetup", row.get("public_meetup", "0"))) in ["1", "True", "true"] else 0,
+                "door_pickup": 1 if str(row.get("Door pickup", row.get("door_pickup", "0"))) in ["1", "True", "true"] else 0,
+                "door_dropoff": 1 if str(row.get("Door dropoff", row.get("door_dropoff", "1"))) in ["1", "True", "true"] else 0,
+            })
+        return {"status": "success", "count": len(fields), "fields": fields}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV/Excel parse failed: {str(e)}")
+
+
+@app.get("/download-template")
+def api_download_template():
+    template_path = os.path.join(os.path.dirname(__file__), "sample_listings_template.csv")
+    if not os.path.exists(template_path):
+        sample_df = pd.DataFrame([
+            {
+                "Title": "Modern Velvet Sofa",
+                "Category": "Furniture",
+                "Price": "95",
+                "Location": "London",
+                "Condition": "New",
+                "Availability": "List as In Stock",
+                "Tags": "sofa, couch, furniture, living room",
+                "Description": "Brand new high quality 3-seater sofa. Fast delivery available!",
+                "Images": "C:/Images/sofa1.jpg|C:/Images/sofa2.jpg",
+                "Video": "",
+                "Public meetup": 0,
+                "Door pickup": 0,
+                "Door dropoff": 1
+            },
+            {
+                "Title": "Solid Wood Dining Table",
+                "Category": "Furniture",
+                "Price": "120",
+                "Location": "Manchester",
+                "Condition": "New",
+                "Availability": "List as In Stock",
+                "Tags": "table, dining, wood, home",
+                "Description": "Beautiful solid oak dining table. Seats 6 comfortably.",
+                "Images": "C:/Images/table1.jpg",
+                "Video": "",
+                "Public meetup": 0,
+                "Door pickup": 0,
+                "Door dropoff": 1
+            }
+        ])
+        sample_df.to_csv(template_path, index=False)
+    return FileResponse(template_path, filename="sample_listings_template.csv", media_type="text/csv")
+
+
+@app.post("/scan-folder")
+def api_scan_folder(req: ScanFolderRequest):
+    folder = req.folder_path.strip()
+    if not os.path.exists(folder) or not os.path.isdir(folder):
+        raise HTTPException(status_code=404, detail="Directory not found or invalid.")
+
+    valid_exts = {".jpg", ".jpeg", ".png", ".webp"}
+    subdirs = [os.path.join(folder, d) for d in os.listdir(folder) if os.path.isdir(os.path.join(folder, d))]
+
+    items = []
+    if subdirs:
+        for sub in subdirs:
+            folder_name = os.path.basename(sub).replace("_", " ").title()
+            imgs = [os.path.abspath(os.path.join(sub, f)) for f in os.listdir(sub) if os.path.splitext(f)[1].lower() in valid_exts]
+            if imgs:
+                items.append({
+                    "title": folder_name,
+                    "category": "Furniture",
+                    "price": "85",
+                    "location": "",
+                    "condition": "New",
+                    "availability": "List as In Stock",
+                    "tags": [t.lower() for t in folder_name.split() if len(t) > 2],
+                    "description": f"High quality {folder_name}. Brand new in packaging. Fast local delivery available!",
+                    "images": imgs,
+                    "video": "",
+                    "public_meetup": 0,
+                    "door_pickup": 0,
+                    "door_dropoff": 1
+                })
+    else:
+        imgs = [os.path.abspath(os.path.join(folder, f)) for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in valid_exts]
+        if imgs:
+            items.append({
+                "title": os.path.basename(folder).replace("_", " ").title(),
+                "category": "Furniture",
+                "price": "85",
+                "location": "",
+                "condition": "New",
+                "availability": "List as In Stock",
+                "tags": ["furniture", "home"],
+                "description": "Brand new item available for order.",
+                "images": imgs,
+                "video": "",
+                "public_meetup": 0,
+                "door_pickup": 0,
+                "door_dropoff": 1
+            })
+
+    return {"status": "success", "count": len(items), "fields": items}
+
+
 @app.get("/load-fields")
 def api_load_fields(name: str = Query(...)):
     filename = f"./saved_states/{name}.csv"

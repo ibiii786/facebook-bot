@@ -935,5 +935,219 @@ async function loadSessionOnStartup() {
   });
 }
 
+// ── CSV & Excel Import Handlers ─────────────────────────────────────────────
+function triggerCSVImportDialog() {
+  const input = document.getElementById('csv-file-input');
+  if (input) { input.value = ''; input.click(); }
+}
+
+async function handleCSVFileSelected(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  try {
+    setStatus(`Importing ${file.name}...`, 'active');
+    const res = await importCSVAPI(file);
+    if (!res.fields || res.fields.length === 0) {
+      alert('No valid product listings found in CSV.');
+      setStatus('Ready');
+      return;
+    }
+
+    res.fields.forEach(f => {
+      addField();
+      const entry = entries[entries.length - 1];
+      const id = entry.id;
+
+      if (f.images && f.images.length > 0) {
+        const firstInput = document.getElementById(`img-input-${id}-0`);
+        if (firstInput) {
+          firstInput.value = f.images[0] || '';
+          updateImagePreview(id, 0, f.images[0]);
+        }
+        for (let i = 1; i < f.images.length && i < MAX_IMAGES; i++) {
+          addImageRow(id);
+          const input = document.getElementById(`img-input-${id}-${i}`);
+          if (input) {
+            input.value = f.images[i];
+            updateImagePreview(id, i, f.images[i]);
+          }
+        }
+      }
+
+      const set = (fieldId, val) => { const el = document.getElementById(fieldId); if (el) el.value = val ?? ''; };
+      set(`title-${id}`,        f.title);
+      set(`desc-${id}`,         f.description);
+      set(`category-${id}`,     f.category);
+      set(`location-${id}`,     f.location);
+      set(`tags-${id}`,         Array.isArray(f.tags) ? f.tags.join(', ') : (f.tags || ''));
+      set(`price-${id}`,        f.price);
+      set(`condition-${id}`,    f.condition);
+      set(`availability-${id}`, f.availability);
+      set(`video-input-${id}`,  f.video);
+      if (document.getElementById(`meetup-${id}`))  document.getElementById(`meetup-${id}`).checked  = !!f.public_meetup;
+      if (document.getElementById(`pickup-${id}`))  document.getElementById(`pickup-${id}`).checked  = !!f.door_pickup;
+      if (document.getElementById(`dropoff-${id}`)) document.getElementById(`dropoff-${id}`).checked = !!f.door_dropoff;
+    });
+
+    triggerAutoSave();
+    setStatus(`Imported ${res.fields.length} listings from ${file.name}`, 'success');
+  } catch (err) {
+    alert(`CSV Import Failed: ${err.message}`);
+    setStatus('Ready');
+  }
+}
+
+// ── Folder Auto-Generator Handlers ──────────────────────────────────────────
+function openFolderGeneratorModal() {
+  openModal('modal-folder-gen');
+}
+
+async function browseFolderGenPath() {
+  try {
+    const paths = await browseNativeFiles();
+    if (paths && paths.length > 0) {
+      const p = paths[0];
+      const dir = p.substring(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
+      if (dir) document.getElementById('folder-gen-path').value = dir;
+    }
+  } catch (e) {}
+}
+
+async function runFolderGenerator() {
+  const path = (document.getElementById('folder-gen-path')?.value || '').trim();
+  if (!path) { alert('Please enter a folder path.'); return; }
+  try {
+    setStatus(`Scanning folder ${path}...`, 'active');
+    const res = await scanFolderAPI(path);
+    closeModal('modal-folder-gen');
+
+    if (!res.fields || res.fields.length === 0) {
+      alert('No photo folders found in directory.');
+      setStatus('Ready');
+      return;
+    }
+
+    res.fields.forEach(f => {
+      addField();
+      const entry = entries[entries.length - 1];
+      const id = entry.id;
+
+      if (f.images && f.images.length > 0) {
+        const firstInput = document.getElementById(`img-input-${id}-0`);
+        if (firstInput) {
+          firstInput.value = f.images[0] || '';
+          updateImagePreview(id, 0, f.images[0]);
+        }
+        for (let i = 1; i < f.images.length && i < MAX_IMAGES; i++) {
+          addImageRow(id);
+          const input = document.getElementById(`img-input-${id}-${i}`);
+          if (input) {
+            input.value = f.images[i];
+            updateImagePreview(id, i, f.images[i]);
+          }
+        }
+      }
+
+      const set = (fieldId, val) => { const el = document.getElementById(fieldId); if (el) el.value = val ?? ''; };
+      set(`title-${id}`,        f.title);
+      set(`desc-${id}`,         f.description);
+      set(`category-${id}`,     f.category);
+      set(`location-${id}`,     f.location);
+      set(`tags-${id}`,         Array.isArray(f.tags) ? f.tags.join(', ') : (f.tags || ''));
+      set(`price-${id}`,        f.price);
+      set(`condition-${id}`,    f.condition);
+      set(`availability-${id}`, f.availability);
+    });
+
+    triggerAutoSave();
+    setStatus(`Generated ${res.fields.length} product listings from folder`, 'success');
+  } catch (err) {
+    alert(`Folder Generation Failed: ${err.message}`);
+    setStatus('Ready');
+  }
+}
+
+// ── Global Batch Editor Handlers ────────────────────────────────────────────
+function openBatchEditModal() {
+  if (entries.length === 0) { alert('No active product cards to edit.'); return; }
+  openModal('modal-batch-edit');
+}
+
+function applyBatchEditsToCards() {
+  const cat = (document.getElementById('batch-category')?.value || '').trim();
+  const cond = document.getElementById('batch-condition')?.value || '';
+  const priceType = document.getElementById('batch-price-type')?.value || 'set';
+  const priceVal = parseFloat(document.getElementById('batch-price-val')?.value);
+  const footer = (document.getElementById('batch-desc-footer')?.value || '').trim();
+
+  let modifiedCount = 0;
+  entries.forEach(entry => {
+    const id = entry.id;
+    if (cat) {
+      const el = document.getElementById(`category-${id}`);
+      if (el) el.value = cat;
+    }
+    if (cond) {
+      const el = document.getElementById(`condition-${id}`);
+      if (el) el.value = cond;
+    }
+    if (!isNaN(priceVal)) {
+      const pEl = document.getElementById(`price-${id}`);
+      if (pEl) {
+        let cur = parseFloat(pEl.value) || 0;
+        if (priceType === 'set') cur = priceVal;
+        else if (priceType === 'add') cur += priceVal;
+        else if (priceType === 'sub') cur = Math.max(0, cur - priceVal);
+        pEl.value = Math.round(cur);
+      }
+    }
+    if (footer) {
+      const dEl = document.getElementById(`desc-${id}`);
+      if (dEl) {
+        const cur = dEl.value.trim();
+        dEl.value = cur ? `${cur}\n\n${footer}` : footer;
+      }
+    }
+    modifiedCount++;
+  });
+
+  closeModal('modal-batch-edit');
+  triggerAutoSave();
+  setStatus(`Updated ${modifiedCount} cards with batch edits`, 'success');
+}
+
+// ── Policy Compliance Guard Check ───────────────────────────────────────────
+const PROHIBITED_KEYWORDS = [
+  "replica", "fake", "first copy", "counterfeit", "master copy",
+  "weapon", "gun", "tobacco", "vape", "cbd", "prescription", "stolen"
+];
+
+function runPolicyGuardCheck() {
+  if (entries.length === 0) { alert('Add at least one product card to run Policy Guard.'); return; }
+  let warnings = [];
+  entries.forEach((e, idx) => {
+    const data = collectEntryData(e);
+    const num = idx + 1;
+    const fullText = `${data.title} ${data.description}`.toLowerCase();
+    const foundKeywords = PROHIBITED_KEYWORDS.filter(k => fullText.includes(k));
+    if (foundKeywords.length > 0) {
+      warnings.push(`Listing #${num} ("${data.title}") contains prohibited keywords: ${foundKeywords.join(', ')}`);
+    }
+    const priceVal = parseFloat(data.price);
+    if (priceVal === 0 || priceVal === 1) {
+      warnings.push(`Listing #${num} ("${data.title}") uses suspicious $${priceVal} bait pricing.`);
+    }
+  });
+
+  if (warnings.length === 0) {
+    alert('🛡️ Policy Guard Scan Passed!\n\nAll listings follow Facebook Marketplace content guidelines.');
+    setStatus('Policy Guard: 100% Passed', 'success');
+  } else {
+    alert(`⚠️ Policy Guard Warnings Found (${warnings.length}):\n\n` + warnings.join('\n\n') + '\n\nPlease resolve these issues before running the bot to prevent account flags.');
+    setStatus(`Policy Warning: ${warnings.length} issues`, 'warning');
+  }
+}
+
 // Initial setup
 updateEmptyState();

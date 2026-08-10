@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FB Marketplace Automation Hub</title>
+  <title>FB Marketplace Automation Hub Pro</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 
@@ -13,15 +13,19 @@
     <!-- Header -->
     <header class="app-header">
       <div class="brand">
-        <span class="icon">🤖</span>
-        <h1>FB Marketplace Bot</h1>
+        <span class="icon">⚡</span>
+        <h1>FB Marketplace Bot Pro</h1>
       </div>
-      <div class="status-badge" id="status-badge">Ready</div>
+      <div class="header-right">
+        <span id="save-indicator" style="font-size:12px;color:var(--text-muted);transition:opacity 0.3s;">Saved</span>
+        <button id="btn-policy-check" class="btn btn-secondary" style="font-size:12px;" onclick="runPolicyGuardCheck()">🛡️ Policy Guard</button>
+        <div class="status-badge" id="status-badge">Ready</div>
+      </div>
     </header>
 
     <!-- Main Container -->
     <div class="main-container">
-      <!-- Toolbar / Action Panels -->
+      <!-- Sidebar / Control Panel -->
       <aside class="control-panel">
 
         <!-- Run & Actions -->
@@ -29,19 +33,18 @@
           <h2>Main Actions</h2>
           <div class="btn-grid">
             <button id="btn-run" class="btn btn-primary" onclick="runBot()">▶ Run Bot</button>
-            <button id="btn-distribute" class="btn btn-accent" onclick="runDistributeBot()">📤 Distribute
-              Accounts</button>
+            <button id="btn-distribute" class="btn btn-accent" onclick="runDistributeBot()">📤 Distribute Accounts</button>
             <button id="btn-failed" class="btn btn-warning" onclick="getFailedFields()">♻ Regen Failed</button>
           </div>
         </div>
 
         <!-- Automation Settings -->
         <div class="panel-card">
-          <h2>Settings</h2>
+          <h2>Automation Settings</h2>
           <div class="form-group">
-            <label>Select your marketplace location</label>
+            <label>Marketplace Location</label>
             <select id="marketplace" class="input">
-              <option value="UK">United Kingdom (UK)</option>
+              <option value="UK" selected>United Kingdom (UK)</option>
               <option value="Canada">Canada</option>
             </select>
           </div>
@@ -56,8 +59,8 @@
               </select>
             </div>
           </div>
-            <div class="form-group">
-            <label>Delay Between Each Accounts</label>
+          <div class="form-group">
+            <label>Delay Between Accounts</label>
             <div class="inline-inputs">
               <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
               <select id="wait-unit-account" class="input">
@@ -109,14 +112,39 @@
             </div>
           </div>
           <div class="form-group">
-            <label>Location Pool <span style="font-size:11px;color:var(--text-muted);">(pipe-separated, bot picks randomly)</span></label>
+            <label>Location Pool <span style="font-size:11px;color:var(--text-muted);">(pipe-separated)</span></label>
             <textarea id="location-pool" class="input" rows="2" placeholder="London|Manchester|Birmingham|Leeds"></textarea>
           </div>
         </div>
 
-        <!-- Quick Maintenance -->
+        <!-- Presets & Bulk Import -->
         <div class="panel-card">
-          <h2>Batch Ops</h2>
+          <h2>Presets & Bulk Suite</h2>
+          <div class="btn-grid">
+            <button id="btn-save-session-side" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
+            <button id="btn-import-csv" class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
+            <button id="btn-folder-gen" class="btn btn-secondary" onclick="openFolderGeneratorModal()">📁 Folder Auto-Gen</button>
+            <button id="btn-batch-edit" class="btn btn-secondary" onclick="openBatchEditModal()">✏️ Global Batch Edit</button>
+            <button id="btn-save-quick" class="btn btn-ghost" style="font-size:12px;" onclick="openSaveQuicklyModal()">⚡ Batch Add Text</button>
+            <div class="btn-grid-2">
+              <button id="btn-save-fields" class="btn btn-secondary" onclick="saveAllFields()">💾 Save Preset</button>
+              <button id="btn-load-fields" class="btn btn-secondary" onclick="loadSavedFields()">📂 Load Presets</button>
+            </div>
+            <button id="btn-download-tpl" class="btn btn-ghost" style="font-size:11px;" onclick="downloadCSVTemplate()">⬇️ Download CSV Template</button>
+          </div>
+        </div>
+
+        <!-- Accounts & Proxies -->
+        <div class="panel-card">
+          <h2>Accounts & Proxies</h2>
+          <div class="btn-grid">
+            <button id="btn-accounts" class="btn btn-primary" onclick="loadAccountsModal()">👤 Manage Accounts</button>
+          </div>
+        </div>
+
+        <!-- Batch Maintenance -->
+        <div class="panel-card">
+          <h2>Maintenance Ops</h2>
           <div class="batch-row">
             <div class="batch-item">
               <label>Renew Count</label>
@@ -135,26 +163,6 @@
           </div>
         </div>
 
-        <!-- Accounts & Proxies -->
-        <div class="panel-card">
-          <h2>Accounts & Proxies</h2>
-          <div class="btn-grid">
-            <button id="btn-accounts" class="btn btn-primary" onclick="loadAccountsModal()">👤 Manage Accounts</button>
-          </div>
-        </div>
-
-        <!-- Preset & Quick Creator -->
-        <div class="panel-card">
-          <h2>Presets & Session</h2>
-          <div class="btn-grid">
-            <button id="btn-save-session-side" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
-            <button id="btn-save-quick" class="btn btn-accent" onclick="openSaveQuicklyModal()">⚡ Batch Add Text</button>
-            <div class="btn-grid-2">
-              <button id="btn-save-fields" class="btn btn-secondary" onclick="saveAllFields()">💾 Save Preset</button>
-              <button id="btn-load-fields" class="btn btn-secondary" onclick="loadSavedFields()">📂 Load Presets</button>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <!-- Content Area (Product Cards) -->
@@ -162,7 +170,6 @@
         <div class="content-header">
           <h2>Product Listings (<span id="product-count">0</span>)</h2>
           <div class="header-actions" style="display:flex;gap:8px;align-items:center;">
-            <span id="save-indicator" style="font-size:12px;color:var(--text-muted);margin-right:8px;transition:opacity 0.3s;">Saved</span>
             <button id="btn-save-session" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
             <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">⏹ Stop All Tasks</button>
             <button id="btn-add" class="btn btn-success" onclick="addField()">➕ Add New Product</button>
@@ -174,125 +181,132 @@
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">📦</div>
           <h3>No Product Listings Added</h3>
-          <p>Click "Add New Product" or use "Batch Add Text" for bulk text setup.</p>
-          <button class="btn btn-success" onclick="addField()">➕ Add First Product</button>
+          <p>Click "Add New Product", drag-and-drop a CSV spreadsheet, or use "Folder Auto-Gen" to create listings.</p>
+          <div style="display:flex;gap:10px;margin-top:8px;">
+            <button class="btn btn-success" onclick="addField()">➕ Add First Product</button>
+            <button class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
+          </div>
         </div>
       </section>
     </div>
   </div>
 
+  <!-- Hidden File Input for CSV/Excel Import -->
+  <input type="file" id="csv-file-input" accept=".csv, .xlsx, .xls" style="display:none;" onchange="handleCSVFileSelected(event)" />
+
   <!-- Modals -->
 
-  <!-- Account Manager Modal -->
-  <div id="modal-accounts" class="modal-overlay hidden">
-    <div class="modal modal-lg">
-      <h3>👤 Account Profiles & Proxies Manager</h3>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-        <input id="acc-email-input" class="input" type="email" placeholder="Email / Account ID..." style="flex: 2;" />
-        <input id="acc-pass-input" class="input" type="password" placeholder="FB Password..." style="flex: 1.5;" />
-        <input id="acc-phone-input" class="input" type="text" placeholder="Phone..." style="flex: 1;" />
-        <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy (host:port or http://user:pass@host:port)..." style="flex: 2;" />
-        <button class="btn btn-success" onclick="saveAccountFromUI()">💾 Save Profile</button>
+  <!-- Folder Auto-Generator Modal -->
+  <div id="modal-folder-gen" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3>📁 Folder Auto-Generator</h3>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:14px;">
+        Select or enter a folder path containing photo sub-folders (e.g. <code>C:/MyListings/Sofa/</code>).
+        The bot will create a product listing card for each folder with photos pre-filled!
+      </p>
+      <div class="form-group">
+        <label>Listings Parent Directory Path</label>
+        <div class="inline-inputs">
+          <input id="folder-gen-path" class="input" type="text" placeholder="D:\Listings\Items..." />
+          <button class="btn btn-secondary" onclick="browseFolderGenPath()">Browse</button>
+        </div>
       </div>
-      <div id="accounts-list-container" class="saved-list" style="max-height: 250px; overflow-y: auto;"></div>
       <div class="modal-actions">
-        <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
+        <button class="btn btn-primary" onclick="runFolderGenerator()">🚀 Generate Listings</button>
+        <button class="btn btn-ghost" onclick="closeModal('modal-folder-gen')">Cancel</button>
       </div>
     </div>
   </div>
 
-  <!-- Save Field Quickly (Bulk Text Modal) -->
-  <div id="modal-quick-save" class="modal-overlay hidden">
-    <div class="modal modal-xl">
-      <h3>⚡ Save Field Quickly (Batch Text Input)</h3>
-      <p class="modal-subtitle">Type items line-by-line for multi-item creation. Descriptions separated by
-        <code>|||</code>.</p>
-
-      <div class="quick-grid">
+  <!-- Global Batch Edit Modal -->
+  <div id="modal-batch-edit" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3>✏️ Global Batch Editor</h3>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:14px;">
+        Apply edits across ALL active product listing cards at once.
+      </p>
+      <div class="fields-grid-3">
         <div class="form-group">
-          <label>Titles (one per line)</label>
-          <textarea id="quick-titles" class="input" rows="3" placeholder="Sofa 1&#10;Sofa 2&#10;Table 1"></textarea>
+          <label>Set Category for All</label>
+          <input id="batch-category" class="input" type="text" placeholder="Leave blank to keep unchanged" />
         </div>
         <div class="form-group">
-          <label>Categories (one per line)</label>
-          <textarea id="quick-categories" class="input" rows="3"
-            placeholder="Furniture&#10;Furniture&#10;Furniture"></textarea>
+          <label>Set Condition for All</label>
+          <select id="batch-condition" class="input">
+            <option value="">Keep Unchanged</option>
+            <option value="New">New</option>
+            <option value="Used - Like New">Used - Like New</option>
+            <option value="Used - Good">Used - Good</option>
+            <option value="Used - Fair">Used - Fair</option>
+          </select>
         </div>
         <div class="form-group">
-          <label>Prices (one per line)</label>
-          <textarea id="quick-prices" class="input" rows="3" placeholder="100&#10;150&#10;80"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Locations (one per line)</label>
-          <textarea id="quick-locations" class="input" rows="3"
-            placeholder="London&#10;Manchester&#10;Birmingham"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Conditions (one per line)</label>
-          <textarea id="quick-conditions" class="input" rows="3"
-            placeholder="Used - Like New&#10;New&#10;Used - Good"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Availability (one per line)</label>
-          <textarea id="quick-availabilities" class="input" rows="3"
-            placeholder="In Stock&#10;In Stock&#10;Single Item"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Tags (one product's tags per line)</label>
-          <textarea id="quick-tags" class="input" rows="3"
-            placeholder="sofa, couch, living&#10;sofa, modern&#10;table, wood"></textarea>
-        </div>
-
-        <!-- Quick Images with Browse button -->
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <label style="margin:0;">Image</label>
-            <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;"
-              onclick="triggerQuickImageBrowse()">📁 Browse Images</button>
+          <label>Price Adjustment</label>
+          <div class="inline-inputs">
+            <select id="batch-price-type" class="input">
+              <option value="set">Set Fixed Price</option>
+              <option value="add">Add (+)</option>
+              <option value="sub">Subtract (-)</option>
+            </select>
+            <input id="batch-price-val" class="input" type="number" placeholder="Value" />
           </div>
-          <textarea id="quick-images" class="input" rows="3"
-            placeholder="img1.jpg, img2.jpg&#10;img3.jpg&#10;img4.jpg, img5.jpg"></textarea>
-        </div>
-
-        <!-- Quick Video with Browse button -->
-        <div class="form-group full-width-span">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <label style="margin:0;">Videos (one video path/URL per line)</label>
-            <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;"
-              onclick="triggerQuickVideoBrowse()">🎥 Browse Videos</button>
-          </div>
-          <textarea id="quick-videos" class="input" rows="2" placeholder="video1.mp4&#10;video2.mp4"></textarea>
-        </div>
-
-        <div class="form-group full-width-span">
-          <label>Descriptions (separate items with |||)</label>
-          <textarea id="quick-descriptions" class="input" rows="3"
-            placeholder="Good condition sofa.|||Brand new velvet sofa.|||Oak wood table."></textarea>
         </div>
       </div>
-
+      <div class="form-group">
+        <label>Append Footer to All Descriptions</label>
+        <textarea id="batch-desc-footer" class="input" rows="2" placeholder="e.g. Free local delivery available! Contact for details."></textarea>
+      </div>
       <div class="modal-actions">
-        <button class="btn btn-success" onclick="applyQuickFieldsToUI()">📥 Generate Into UI</button>
-        <button class="btn btn-primary" onclick="saveQuickFieldsToPreset()">💾 Save Direct Preset</button>
+        <button class="btn btn-primary" onclick="applyBatchEditsToCards()">Apply Batch Edits</button>
+        <button class="btn btn-ghost" onclick="closeModal('modal-batch-edit')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Add Text Modal -->
+  <div id="modal-quick-save" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3>⚡ Batch Add Text (Multi-Line Input)</h3>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Paste values line-by-line (one line per product). Use <code>|||</code> to separate multi-line descriptions.</p>
+      <div class="fields-grid-3">
+        <div class="form-group"><label>Titles</label><textarea id="quick-titles" class="input" rows="3" placeholder="Sofa 1&#10;Table 2"></textarea></div>
+        <div class="form-group"><label>Categories</label><textarea id="quick-categories" class="input" rows="3" placeholder="Furniture&#10;Home & Kitchen"></textarea></div>
+        <div class="form-group"><label>Prices</label><textarea id="quick-prices" class="input" rows="3" placeholder="85&#10;95"></textarea></div>
+        <div class="form-group"><label>Locations</label><textarea id="quick-locations" class="input" rows="3" placeholder="London&#10;Manchester"></textarea></div>
+        <div class="form-group"><label>Conditions</label><textarea id="quick-conditions" class="input" rows="3" placeholder="New&#10;Used - Like New"></textarea></div>
+        <div class="form-group"><label>Availabilities</label><textarea id="quick-availabilities" class="input" rows="3" placeholder="List as In Stock"></textarea></div>
+      </div>
+      <div class="form-group"><label>Tags (Comma-separated per line)</label><textarea id="quick-tags" class="input" rows="2" placeholder="furniture, sofa&#10;table, wood"></textarea></div>
+      <div class="form-group"><label>Descriptions (Use <code>|||</code> between products)</label><textarea id="quick-descriptions" class="input" rows="3" placeholder="Desc 1... ||| Desc 2..."></textarea></div>
+      <div class="form-group">
+        <label>Image Paths</label>
+        <div class="inline-inputs">
+          <textarea id="quick-images" class="input" rows="2" placeholder="/path/to/img1.png, /path/to/img2.png"></textarea>
+          <button class="btn btn-secondary" onclick="triggerQuickImageBrowse()">Browse</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Video Paths</label>
+        <div class="inline-inputs">
+          <textarea id="quick-videos" class="input" rows="2" placeholder="/path/to/video1.mp4"></textarea>
+          <button class="btn btn-secondary" onclick="triggerQuickVideoBrowse()">Browse</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-success" onclick="applyQuickFieldsToUI()">➕ Generate Product Cards</button>
+        <button class="btn btn-primary" onclick="saveQuickFieldsToPreset()">💾 Save Preset</button>
         <button class="btn btn-ghost" onclick="closeModal('modal-quick-save')">Cancel</button>
       </div>
     </div>
   </div>
 
-  <!-- Image Lightbox Modal -->
-  <div id="modal-lightbox" class="modal-overlay hidden" onclick="closeModal('modal-lightbox')">
-    <div class="lightbox-content" onclick="event.stopPropagation()">
-      <button class="lightbox-close" onclick="closeModal('modal-lightbox')">✕</button>
-      <img id="lightbox-img" src="" alt="Expanded Image Preview" />
-    </div>
-  </div>
-
   <!-- Save Preset Modal -->
   <div id="modal-save" class="modal-overlay hidden">
-    <div class="modal">
+    <div class="modal-card">
       <h3>Save Preset As</h3>
       <div class="form-group">
-        <input id="save-name-input" class="input" type="text" placeholder="Preset Name (e.g. Sofa_Listings_UK)..." />
+        <label>Preset Name</label>
+        <input id="save-name-input" class="input" type="text" placeholder="e.g. Sofa_Listings_UK..." />
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" onclick="confirmSave()">Save Preset</button>
@@ -303,7 +317,7 @@
 
   <!-- Load Preset Modal -->
   <div id="modal-load" class="modal-overlay hidden">
-    <div class="modal modal-lg">
+    <div class="modal-card">
       <h3>Load Saved Preset</h3>
       <div id="saved-states-list" class="saved-list"></div>
       <div class="modal-actions">
@@ -312,20 +326,49 @@
     </div>
   </div>
 
-  <!-- Failed Modal -->
+  <!-- Account Manager Modal -->
+  <div id="modal-accounts" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3>Manage Facebook Accounts & Proxies</h3>
+      <div class="form-group">
+        <label>Add Account Profile</label>
+        <div class="fields-grid-3">
+          <input id="acc-email-input" class="input" type="text" placeholder="Email / Username *" />
+          <input id="acc-pass-input" class="input" type="password" placeholder="Password (Optional)" />
+          <input id="acc-phone-input" class="input" type="text" placeholder="Phone (Optional)" />
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy e.g. http://user:pass@host:port (Optional)" />
+        </div>
+        <button class="btn btn-success" style="margin-top:8px;" onclick="saveAccountFromUI()">💾 Save Profile</button>
+      </div>
+      <h4 style="margin-top:16px;margin-bottom:8px;font-size:14px;">Saved Accounts</h4>
+      <div id="accounts-list-container" class="saved-list" style="max-height: 250px; overflow-y: auto;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Failed Items Modal -->
   <div id="modal-failed" class="modal-overlay hidden">
-    <div class="modal">
-      <h3 style="color: var(--danger-color)">❌ Failed Listings Summary</h3>
-      <div id="failed-list-content" class="failed-list"></div>
+    <div class="modal-card">
+      <h3>Failed Listings Report</h3>
+      <div id="failed-list-content" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('modal-failed')">Close</button>
       </div>
     </div>
   </div>
 
+  <!-- Lightbox Modal -->
+  <div id="modal-lightbox" class="modal-overlay hidden" onclick="closeModal('modal-lightbox')">
+    <img id="lightbox-img" class="lightbox-img" src="" alt="Preview" />
+  </div>
+
+  <script src="UI.js"></script>
   <script src="api.js"></script>
   <script src="app.js"></script>
-  <script src="UI.js"></script>
 </body>
 
 </html>
