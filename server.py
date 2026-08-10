@@ -619,6 +619,10 @@ if os.path.exists(web_dir):
     def read_static_file(file_name: str):
         file_path = os.path.join(web_dir, file_name)
         if os.path.exists(file_path) and os.path.isfile(file_path):
+            if file_name.endswith('.css'):
+                return FileResponse(file_path, media_type="text/css")
+            if file_name.endswith('.js'):
+                return FileResponse(file_path, media_type="application/javascript")
             return FileResponse(file_path)
         return FileResponse(os.path.join(web_dir, "index.html"))
 
