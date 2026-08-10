@@ -14,6 +14,18 @@ function setStatus(msg, type = '') {
   badge.textContent = msg || 'Ready';
   badge.className = 'status-badge ' + type;
 }
+
+// Tab Switching Logic
+function switchTab(tabId) {
+  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  
+  const activeTab = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+  if (activeTab) activeTab.classList.add('active');
+  
+  const activeContent = document.getElementById(tabId);
+  if (activeContent) activeContent.classList.add('active');
+}
 document.addEventListener('DOMContentLoaded', () => {
   const stop_btn = document.getElementById('btn-stop');
   if (stop_btn) stop_btn.disabled = true;

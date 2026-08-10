@@ -4,221 +4,213 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FB Marketplace Bot — Pro Dashboard</title>
+  <title>Facebook Marketplace Bot</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
   <div class="app-layout">
-    <!-- Header Navbar -->
+    <!-- Header -->
     <header class="app-header">
       <div class="brand">
-        <div class="brand-logo">⚡</div>
-        <div>
-          <h1>FB Marketplace Bot<span class="badge-ver">v3.0 PRO</span></h1>
-        </div>
+        <span class="brand-logo">FB Bot</span>
       </div>
+      
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs">
+        <div class="nav-tab active" data-tab="tab-products" onclick="switchTab('tab-products')">Products</div>
+        <div class="nav-tab" data-tab="tab-settings" onclick="switchTab('tab-settings')">Settings</div>
+        <div class="nav-tab" data-tab="tab-bulk" onclick="switchTab('tab-bulk')">Bulk Suite</div>
+        <div class="nav-tab" data-tab="tab-accounts" onclick="switchTab('tab-accounts')">Accounts</div>
+      </nav>
+
       <div class="header-right">
-        <div class="metric-pill">
-          <span class="dot"></span>
-          <span>System Status: Active</span>
-        </div>
-        <span id="save-indicator" style="font-size:12px;color:var(--text-muted);transition:opacity 0.3s;">Saved</span>
-        <button id="btn-policy-check" class="btn btn-secondary" style="font-size:12px;" onclick="runPolicyGuardCheck()">🛡️ Policy Guard</button>
+        <span id="save-indicator" style="font-size:12px;color:var(--text-muted);transition:opacity 0.2s;">Saved</span>
+        <button id="btn-policy-check" class="btn btn-secondary" onclick="runPolicyGuardCheck()">Policy Check</button>
         <div class="status-badge" id="status-badge">Ready</div>
       </div>
     </header>
 
     <!-- Main Container -->
     <div class="main-container">
-      <!-- Sidebar / Control Panel -->
-      <aside class="control-panel">
-
-        <!-- Run & Actions -->
-        <div class="panel-card primary-card">
-          <h2>⚡ Main Actions</h2>
-          <div class="btn-grid">
-            <button id="btn-run" class="btn btn-primary" onclick="runBot()">▶ Run Bot</button>
-            <button id="btn-distribute" class="btn btn-accent" onclick="runDistributeBot()">📤 Distribute Accounts</button>
-            <button id="btn-failed" class="btn btn-warning" onclick="getFailedFields()">♻ Regen Failed</button>
-          </div>
-        </div>
-
-        <!-- Automation Settings -->
-        <div class="panel-card">
-          <h2>⚙️ Automation Settings</h2>
-          <div class="form-group">
-            <label>Marketplace Location</label>
-            <select id="marketplace" class="input">
-              <option value="UK" selected>United Kingdom (UK)</option>
-              <option value="Canada">Canada</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Delay Between Listings</label>
-            <div class="inline-inputs">
-              <input id="wait-value" class="input" type="number" min="0" max="60" value="2" />
-              <select id="wait-unit" class="input">
-                <option value="seconds">Seconds</option>
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Delay Between Accounts</label>
-            <div class="inline-inputs">
-              <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
-              <select id="wait-unit-account" class="input">
-                <option value="seconds">Seconds</option>
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Listing Defaults -->
-        <div class="panel-card">
-          <h2>🎯 Listing Defaults</h2>
-          <div class="form-group">
-            <label>Default Category</label>
-            <input id="default-category" class="input" type="text" value="Furniture" />
-          </div>
-          <div class="form-group">
-            <label>Default Condition</label>
-            <select id="default-condition" class="input">
-              <option value="New" selected>New</option>
-              <option value="Used - Like New">Used - Like New</option>
-              <option value="Used - Good">Used - Good</option>
-              <option value="Used - Fair">Used - Fair</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Default Availability</label>
-            <select id="default-availability" class="input">
-              <option value="List as In Stock" selected>List as In Stock</option>
-              <option value="List as Single Item">List as Single Item</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Default Price Range</label>
-            <div class="inline-inputs">
-              <input id="default-price-min" class="input" type="number" min="0" value="80" placeholder="Min" />
-              <span style="color:var(--text-muted);padding:0 4px;">–</span>
-              <input id="default-price-max" class="input" type="number" min="0" value="100" placeholder="Max" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Default Delivery</label>
-            <div class="checkbox-row">
-              <label class="checkbox-item"><input type="checkbox" id="default-meetup" /> Public meetup</label>
-              <label class="checkbox-item"><input type="checkbox" id="default-pickup" /> Door pickup</label>
-              <label class="checkbox-item"><input type="checkbox" id="default-dropoff" checked /> Door dropoff</label>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Location Pool <span style="font-size:11px;color:var(--text-muted);">(pipe-separated)</span></label>
-            <textarea id="location-pool" class="input" rows="2" placeholder="London|Manchester|Birmingham|Leeds"></textarea>
-          </div>
-        </div>
-
-        <!-- Presets & Bulk Suite -->
-        <div class="panel-card">
-          <h2>📊 Presets & Bulk Suite</h2>
-          <div class="btn-grid">
-            <button id="btn-save-session-side" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
-            <button id="btn-import-csv" class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
-            <button id="btn-folder-gen" class="btn btn-secondary" onclick="openFolderGeneratorModal()">📁 Folder Auto-Gen</button>
-            <button id="btn-batch-edit" class="btn btn-secondary" onclick="openBatchEditModal()">✏️ Global Batch Edit</button>
-            <button id="btn-save-quick" class="btn btn-ghost" style="font-size:12px;" onclick="openSaveQuicklyModal()">⚡ Batch Add Text</button>
-            <div class="btn-grid-2">
-              <button id="btn-save-fields" class="btn btn-secondary" onclick="saveAllFields()">💾 Save Preset</button>
-              <button id="btn-load-fields" class="btn btn-secondary" onclick="loadSavedFields()">📂 Load Presets</button>
-            </div>
-            <button id="btn-download-tpl" class="btn btn-ghost" style="font-size:11px;" onclick="downloadCSVTemplate()">⬇️ Download CSV Template</button>
-          </div>
-        </div>
-
-        <!-- Accounts & Proxies -->
-        <div class="panel-card">
-          <h2>👥 Accounts & Proxies</h2>
-          <div class="btn-grid">
-            <button id="btn-accounts" class="btn btn-primary" onclick="loadAccountsModal()">👤 Manage Accounts</button>
-          </div>
-        </div>
-
-        <!-- Batch Maintenance -->
-        <div class="panel-card">
-          <h2>🔧 Maintenance Ops</h2>
-          <div class="batch-row">
-            <div class="batch-item">
-              <label>Renew Count</label>
-              <div class="batch-controls">
-                <input id="renew-count" class="input" type="number" min="1" max="100" value="2" />
-                <button id="btn-renew" class="btn btn-secondary" onclick="renewListings()">Renew</button>
-              </div>
-            </div>
-            <div class="batch-item">
-              <label>Relist Count</label>
-              <div class="batch-controls">
-                <input id="delete-relist-count" class="input" type="number" min="1" max="100" value="2" />
-                <button id="btn-delete-relist" class="btn btn-danger" onclick="deleteAndRelist()">Relist</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </aside>
-
-      <!-- Content Area (Product Cards) -->
-      <section class="content-area">
-        <!-- Stats Overview Bar -->
-        <div class="stats-bar">
-          <div class="stat-card">
-            <div class="stat-icon">📦</div>
-            <div class="stat-info">
-              <div class="stat-val" id="stat-count">0</div>
-              <div class="stat-lbl">Active Listings</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">🛡️</div>
-            <div class="stat-info">
-              <div class="stat-val" style="color:#34d399;">100%</div>
-              <div class="stat-lbl">Policy Health Score</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⚡</div>
-            <div class="stat-info">
-              <div class="stat-val" style="color:#60a5fa;">Active</div>
-              <div class="stat-lbl">React NativeSetter</div>
-            </div>
-          </div>
-        </div>
-
+      
+      <!-- Tab 1: Products -->
+      <div id="tab-products" class="tab-content active">
         <div class="content-header">
           <h2>Product Listings (<span id="product-count">0</span>)</h2>
-          <div class="header-actions" style="display:flex;gap:10px;align-items:center;">
-            <button id="btn-save-session" class="btn btn-primary" onclick="saveFullSession(true)">💾 Save Session</button>
-            <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">⏹ Stop All Tasks</button>
-            <button id="btn-add" class="btn btn-success" onclick="addField()">➕ Add New Product</button>
+          <div class="header-actions">
+            <!-- Hidden stats element for app.js sync -->
+            <span id="stat-count" style="display:none;">0</span>
+            <button id="btn-save-session" class="btn btn-secondary" onclick="saveFullSession(true)">Save</button>
+            <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">Stop</button>
+            <button id="btn-run" class="btn btn-primary" onclick="runBot()">Run Bot</button>
+            <button id="btn-add" class="btn btn-accent" onclick="addField()">Add Product</button>
           </div>
         </div>
 
         <div id="entries-list" class="entries-list"></div>
 
         <div id="empty-state" class="empty-state">
-          <div class="empty-icon">📦</div>
+          <div class="empty-icon">📂</div>
           <h3>No Product Listings Added</h3>
-          <p>Click "Add New Product", drag-and-drop a CSV spreadsheet, or use "Folder Auto-Gen" to populate your listings.</p>
-          <div style="display:flex;gap:12px;margin-top:10px;">
-            <button class="btn btn-success" onclick="addField()">➕ Add First Product</button>
-            <button class="btn btn-accent" onclick="triggerCSVImportDialog()">📊 Import CSV / Excel</button>
-          </div>
+          <p>Click "Add Product" or switch to the Bulk Suite tab to import a CSV file or scan a folder.</p>
+          <button class="btn btn-accent" onclick="addField()">Add First Product</button>
         </div>
-      </section>
+      </div>
+
+      <!-- Tab 2: Settings -->
+      <div id="tab-settings" class="tab-content">
+        <div class="settings-grid">
+          
+          <div class="panel-card">
+            <h2>Automation Settings</h2>
+            <div class="form-group">
+              <label>Marketplace Location</label>
+              <select id="marketplace" class="input">
+                <option value="UK" selected>United Kingdom (UK)</option>
+                <option value="Canada">Canada</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Delay Between Listings</label>
+              <div class="inline-inputs">
+                <input id="wait-value" class="input" type="number" min="0" max="60" value="2" />
+                <select id="wait-unit" class="input">
+                  <option value="seconds">Seconds</option>
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Delay Between Accounts</label>
+              <div class="inline-inputs">
+                <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
+                <select id="wait-unit-account" class="input">
+                  <option value="seconds">Seconds</option>
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <h2>Listing Defaults</h2>
+            <div class="form-group">
+              <label>Default Category</label>
+              <input id="default-category" class="input" type="text" value="Furniture" />
+            </div>
+            <div class="form-group">
+              <label>Default Condition</label>
+              <select id="default-condition" class="input">
+                <option value="New" selected>New</option>
+                <option value="Used - Like New">Used - Like New</option>
+                <option value="Used - Good">Used - Good</option>
+                <option value="Used - Fair">Used - Fair</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Default Availability</label>
+              <select id="default-availability" class="input">
+                <option value="List as In Stock" selected>List as In Stock</option>
+                <option value="List as Single Item">List as Single Item</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Default Price Range</label>
+              <div class="inline-inputs">
+                <input id="default-price-min" class="input" type="number" min="0" value="80" placeholder="Min" />
+                <span style="color:var(--text-muted);">–</span>
+                <input id="default-price-max" class="input" type="number" min="0" value="100" placeholder="Max" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Default Delivery</label>
+              <div class="checkbox-row">
+                <label class="checkbox-item"><input type="checkbox" id="default-meetup" /> Public meetup</label>
+                <label class="checkbox-item"><input type="checkbox" id="default-pickup" /> Door pickup</label>
+                <label class="checkbox-item"><input type="checkbox" id="default-dropoff" checked /> Door dropoff</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Location Pool (pipe-separated)</label>
+              <textarea id="location-pool" class="input" rows="2" placeholder="London|Manchester|Birmingham|Leeds"></textarea>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <h2>Maintenance Ops</h2>
+            <div class="form-group">
+              <label>Renew Count</label>
+              <div class="inline-inputs">
+                <input id="renew-count" class="input" type="number" min="1" max="100" value="2" />
+                <button id="btn-renew" class="btn btn-secondary" onclick="renewListings()">Renew</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Relist Count</label>
+              <div class="inline-inputs">
+                <input id="delete-relist-count" class="input" type="number" min="1" max="100" value="2" />
+                <button id="btn-delete-relist" class="btn btn-danger" onclick="deleteAndRelist()">Relist</button>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+              <button id="btn-failed" class="btn btn-secondary" style="width:100%" onclick="getFailedFields()">Regen Failed Listings</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Tab 3: Bulk Suite -->
+      <div id="tab-bulk" class="tab-content">
+        <div class="settings-grid">
+          
+          <div class="panel-card">
+            <h2>Import & Export</h2>
+            <div class="btn-grid">
+              <button id="btn-import-csv" class="btn btn-secondary" onclick="triggerCSVImportDialog()">Import CSV / Excel</button>
+              <button id="btn-download-tpl" class="btn btn-ghost" onclick="downloadCSVTemplate()">Download CSV Template</button>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <h2>Batch Operations</h2>
+            <div class="btn-grid">
+              <button id="btn-folder-gen" class="btn btn-secondary" onclick="openFolderGeneratorModal()">Folder Auto-Gen</button>
+              <button id="btn-batch-edit" class="btn btn-secondary" onclick="openBatchEditModal()">Global Batch Edit</button>
+              <button id="btn-save-quick" class="btn btn-secondary" onclick="openSaveQuicklyModal()">Batch Add Text</button>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <h2>Session & Presets</h2>
+            <div class="btn-grid">
+              <button id="btn-save-session-side" class="btn btn-secondary" onclick="saveFullSession(true)">Save Session</button>
+              <button id="btn-save-fields" class="btn btn-secondary" onclick="saveAllFields()">Save Preset</button>
+              <button id="btn-load-fields" class="btn btn-secondary" onclick="loadSavedFields()">Load Presets</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Tab 4: Accounts -->
+      <div id="tab-accounts" class="tab-content">
+        <div class="settings-grid">
+          
+          <div class="panel-card">
+            <h2>Account Management</h2>
+            <div class="btn-grid">
+              <button id="btn-accounts" class="btn btn-secondary" onclick="loadAccountsModal()">Manage Accounts & Proxies</button>
+              <button id="btn-distribute" class="btn btn-primary" onclick="runDistributeBot()">Distribute Accounts</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -230,10 +222,10 @@
   <!-- Folder Auto-Generator Modal -->
   <div id="modal-folder-gen" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>📁 Folder Auto-Generator</h3>
-      <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">
+      <h3>Folder Auto-Generator</h3>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">
         Select or enter a folder path containing photo sub-folders (e.g. <code>D:/MyListings/Sofa/</code>).
-        The bot will create a product listing card for each folder with photo paths pre-filled!
+        The bot will create a product listing card for each folder with photo paths pre-filled.
       </p>
       <div class="form-group">
         <label>Listings Parent Directory Path</label>
@@ -243,8 +235,8 @@
         </div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary" onclick="runFolderGenerator()">🚀 Generate Listings</button>
         <button class="btn btn-ghost" onclick="closeModal('modal-folder-gen')">Cancel</button>
+        <button class="btn btn-primary" onclick="runFolderGenerator()">Generate</button>
       </div>
     </div>
   </div>
@@ -252,19 +244,16 @@
   <!-- Global Batch Edit Modal -->
   <div id="modal-batch-edit" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>✏️ Global Batch Editor</h3>
-      <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">
-        Apply edits across ALL active product listing cards at once.
-      </p>
+      <h3>Global Batch Editor</h3>
       <div class="fields-grid-3">
         <div class="form-group">
-          <label>Set Category for All</label>
-          <input id="batch-category" class="input" type="text" placeholder="Leave blank to keep unchanged" />
+          <label>Category</label>
+          <input id="batch-category" class="input" type="text" placeholder="Unchanged" />
         </div>
         <div class="form-group">
-          <label>Set Condition for All</label>
+          <label>Condition</label>
           <select id="batch-condition" class="input">
-            <option value="">Keep Unchanged</option>
+            <option value="">Unchanged</option>
             <option value="New">New</option>
             <option value="Used - Like New">Used - Like New</option>
             <option value="Used - Good">Used - Good</option>
@@ -272,24 +261,24 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Price Adjustment</label>
+          <label>Price</label>
           <div class="inline-inputs">
             <select id="batch-price-type" class="input">
-              <option value="set">Set Fixed Price</option>
+              <option value="set">Set</option>
               <option value="add">Add (+)</option>
-              <option value="sub">Subtract (-)</option>
+              <option value="sub">Sub (-)</option>
             </select>
             <input id="batch-price-val" class="input" type="number" placeholder="Value" />
           </div>
         </div>
       </div>
       <div class="form-group">
-        <label>Append Footer to All Descriptions</label>
-        <textarea id="batch-desc-footer" class="input" rows="2" placeholder="e.g. Free local delivery available! Contact for details."></textarea>
+        <label>Append Footer to Descriptions</label>
+        <textarea id="batch-desc-footer" class="input" rows="2" placeholder="Text to append..."></textarea>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary" onclick="applyBatchEditsToCards()">Apply Batch Edits</button>
         <button class="btn btn-ghost" onclick="closeModal('modal-batch-edit')">Cancel</button>
+        <button class="btn btn-primary" onclick="applyBatchEditsToCards()">Apply Changes</button>
       </div>
     </div>
   </div>
@@ -297,51 +286,50 @@
   <!-- Batch Add Text Modal -->
   <div id="modal-quick-save" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>⚡ Batch Add Text (Multi-Line Input)</h3>
-      <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">Paste values line-by-line (one line per product). Use <code>|||</code> to separate multi-line descriptions.</p>
+      <h3>Batch Add Text</h3>
       <div class="fields-grid-3">
-        <div class="form-group"><label>Titles</label><textarea id="quick-titles" class="input" rows="3" placeholder="Sofa 1&#10;Table 2"></textarea></div>
-        <div class="form-group"><label>Categories</label><textarea id="quick-categories" class="input" rows="3" placeholder="Furniture&#10;Home & Kitchen"></textarea></div>
-        <div class="form-group"><label>Prices</label><textarea id="quick-prices" class="input" rows="3" placeholder="85&#10;95"></textarea></div>
-        <div class="form-group"><label>Locations</label><textarea id="quick-locations" class="input" rows="3" placeholder="London&#10;Manchester"></textarea></div>
-        <div class="form-group"><label>Conditions</label><textarea id="quick-conditions" class="input" rows="3" placeholder="New&#10;Used - Like New"></textarea></div>
-        <div class="form-group"><label>Availabilities</label><textarea id="quick-availabilities" class="input" rows="3" placeholder="List as In Stock"></textarea></div>
+        <div class="form-group"><label>Titles</label><textarea id="quick-titles" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Categories</label><textarea id="quick-categories" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Prices</label><textarea id="quick-prices" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Locations</label><textarea id="quick-locations" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Conditions</label><textarea id="quick-conditions" class="input" rows="3"></textarea></div>
+        <div class="form-group"><label>Availabilities</label><textarea id="quick-availabilities" class="input" rows="3"></textarea></div>
       </div>
-      <div class="form-group"><label>Tags (Comma-separated per line)</label><textarea id="quick-tags" class="input" rows="2" placeholder="furniture, sofa&#10;table, wood"></textarea></div>
-      <div class="form-group"><label>Descriptions (Use <code>|||</code> between products)</label><textarea id="quick-descriptions" class="input" rows="3" placeholder="Desc 1... ||| Desc 2..."></textarea></div>
+      <div class="form-group"><label>Tags</label><textarea id="quick-tags" class="input" rows="2"></textarea></div>
+      <div class="form-group"><label>Descriptions (Use <code>|||</code> between products)</label><textarea id="quick-descriptions" class="input" rows="3"></textarea></div>
       <div class="form-group">
         <label>Image Paths</label>
         <div class="inline-inputs">
-          <textarea id="quick-images" class="input" rows="2" placeholder="/path/to/img1.png, /path/to/img2.png"></textarea>
+          <textarea id="quick-images" class="input" rows="2"></textarea>
           <button class="btn btn-secondary" onclick="triggerQuickImageBrowse()">Browse</button>
         </div>
       </div>
       <div class="form-group">
         <label>Video Paths</label>
         <div class="inline-inputs">
-          <textarea id="quick-videos" class="input" rows="2" placeholder="/path/to/video1.mp4"></textarea>
+          <textarea id="quick-videos" class="input" rows="2"></textarea>
           <button class="btn btn-secondary" onclick="triggerQuickVideoBrowse()">Browse</button>
         </div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-success" onclick="applyQuickFieldsToUI()">➕ Generate Product Cards</button>
-        <button class="btn btn-primary" onclick="saveQuickFieldsToPreset()">💾 Save Preset</button>
         <button class="btn btn-ghost" onclick="closeModal('modal-quick-save')">Cancel</button>
+        <button class="btn btn-secondary" onclick="saveQuickFieldsToPreset()">Save Preset</button>
+        <button class="btn btn-primary" onclick="applyQuickFieldsToUI()">Generate Cards</button>
       </div>
     </div>
   </div>
 
   <!-- Save Preset Modal -->
   <div id="modal-save" class="modal-overlay hidden">
-    <div class="modal-card">
-      <h3>Save Preset As</h3>
+    <div class="modal-card" style="max-width: 400px;">
+      <h3>Save Preset</h3>
       <div class="form-group">
         <label>Preset Name</label>
-        <input id="save-name-input" class="input" type="text" placeholder="e.g. Sofa_Listings_UK..." />
+        <input id="save-name-input" class="input" type="text" placeholder="Name..." />
       </div>
       <div class="modal-actions">
-        <button class="btn btn-primary" onclick="confirmSave()">Save Preset</button>
         <button class="btn btn-ghost" onclick="closeModal('modal-save')">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmSave()">Save</button>
       </div>
     </div>
   </div>
@@ -349,7 +337,7 @@
   <!-- Load Preset Modal -->
   <div id="modal-load" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>Load Saved Preset</h3>
+      <h3>Load Preset</h3>
       <div id="saved-states-list" class="saved-list"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('modal-load')">Close</button>
@@ -360,20 +348,20 @@
   <!-- Account Manager Modal -->
   <div id="modal-accounts" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>Manage Facebook Accounts & Proxies</h3>
+      <h3>Manage Accounts</h3>
       <div class="form-group">
         <label>Add Account Profile</label>
         <div class="fields-grid-3">
-          <input id="acc-email-input" class="input" type="text" placeholder="Email / Username *" />
-          <input id="acc-pass-input" class="input" type="password" placeholder="Password (Optional)" />
-          <input id="acc-phone-input" class="input" type="text" placeholder="Phone (Optional)" />
+          <input id="acc-email-input" class="input" type="text" placeholder="Email / Username" />
+          <input id="acc-pass-input" class="input" type="password" placeholder="Password" />
+          <input id="acc-phone-input" class="input" type="text" placeholder="Phone" />
         </div>
         <div class="form-group" style="margin-top:8px;">
-          <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy e.g. http://user:pass@host:port (Optional)" />
+          <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy e.g. http://user:pass@host:port" />
         </div>
-        <button class="btn btn-success" style="margin-top:8px;" onclick="saveAccountFromUI()">💾 Save Profile</button>
+        <button class="btn btn-secondary" style="margin-top:8px;" onclick="saveAccountFromUI()">Save Profile</button>
       </div>
-      <h4 style="margin-top:18px;margin-bottom:10px;font-size:14px;">Saved Accounts</h4>
+      <h4 style="margin-top:24px;margin-bottom:12px;font-size:13px;font-weight:600;">Saved Accounts</h4>
       <div id="accounts-list-container" class="saved-list" style="max-height: 250px; overflow-y: auto;"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
