@@ -633,27 +633,20 @@ async function loadAccountsModal() {
       accounts.forEach(acc => {
         const item = document.createElement('div');
         item.className = 'saved-item';
-        item.style.display = 'flex';
-        item.style.justifyContent = 'space-between';
-        item.style.alignItems = 'center';
-        item.style.padding = '10px 14px';
-        item.style.marginBottom = '8px';
-        item.style.borderRadius = '6px';
-        item.style.background = 'var(--bg-card, #252526)';
 
         const statusBadge = acc.authenticated
           ? '<span style="color:#4caf50;font-weight:bold;margin-left:6px;">🟢 Authenticated</span>'
           : '<span style="color:#f44336;font-weight:bold;margin-left:6px;">🔴 Not Initialized</span>';
 
         const info = document.createElement('div');
+        info.className = 'saved-item-info';
         info.innerHTML = `<div><strong>${acc.email}</strong> ${statusBadge}</div>
                           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                             ${acc.phone ? '📞 ' + acc.phone + ' ' : ''} ${acc.proxy ? '🌐 Proxy: ' + acc.proxy : ''}
                           </div>`;
 
         const btnGroup = document.createElement('div');
-        btnGroup.style.display = 'flex';
-        btnGroup.style.gap = '6px';
+        btnGroup.className = 'saved-item-actions';
 
         const autoLoginBtn = document.createElement('button');
         autoLoginBtn.className = 'btn btn-primary';

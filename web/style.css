@@ -192,13 +192,14 @@ body {
 
 /* --- Panel Cards (The Grid System) --- */
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: var(--sp-3);
-  align-items: start;
+  column-count: 2;
+  column-gap: var(--sp-3);
 }
 
 .panel-card {
+  break-inside: avoid;
+  margin-bottom: var(--sp-3);
+  width: 100%;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -245,6 +246,16 @@ body {
 }
 .input:focus { border-color: var(--text-secondary); }
 textarea.input { resize: vertical; min-height: 60px; }
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0px 1000px var(--bg-base) inset;
+  box-shadow: 0 0 0px 1000px var(--bg-base) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
 
 .inline-inputs { display: flex; gap: var(--sp-1); align-items: center; }
 .inline-inputs .input { flex: 1; }
@@ -431,7 +442,7 @@ textarea.input { resize: vertical; min-height: 60px; }
   border-top: 1px solid var(--border-subtle);
 }
 
-.saved-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 250px; overflow-y: auto; }
+.saved-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 250px; overflow-y: auto; flex-shrink: 0; min-height: 60px; }
 .saved-item {
   display: flex;
   align-items: center;
@@ -440,6 +451,21 @@ textarea.input { resize: vertical; min-height: 60px; }
   border: 1px solid var(--border-subtle);
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius);
+  min-height: 48px;
+  flex-shrink: 0;
+}
+.saved-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.saved-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .lightbox-img {
@@ -456,7 +482,7 @@ textarea.input { resize: vertical; min-height: 60px; }
   .nav-tab { white-space: nowrap; }
   .main-header { padding: 0 var(--sp-3); }
   .tab-content { padding: var(--sp-3); }
-  .settings-grid { grid-template-columns: 1fr; }
+  .settings-grid { column-count: 1; }
   .fields-grid-3 { grid-template-columns: 1fr; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; }
 }
