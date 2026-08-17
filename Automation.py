@@ -35,57 +35,50 @@ def check_policy_keywords(title, description, price):
         pass
 
 def safe_paste(driver, element, text):
-    """Thread-safe React-compatible text input that persists values in Facebook's React forms."""
+    """
+    Thread-safe human-mimicking text input.
+    Uses native OS clipboard paste and human keystroke simulation to ensure
+    all input events carry `isTrusted: true` and avoid Meta's anti-bot synthetic event triggers.
+    """
     with _paste_lock:
         try:
+            # 1. Focus element
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            time.sleep(random.uniform(0.2, 0.4))
             element.click()
-            time.sleep(0.3)
+            time.sleep(random.uniform(0.2, 0.4))
 
-            # Determine if the element is a textarea or input
-            tag = element.tag_name.lower() if element.tag_name else "input"
+            # 2. Clear existing text with native keyboard commands
+            element.send_keys(Keys.CONTROL, 'a')
+            time.sleep(0.1)
+            element.send_keys(Keys.BACKSPACE)
+            time.sleep(0.15)
 
-            # Use React nativeSetter to bypass React state tracking
-            driver.execute_script("""
-                var el = arguments[0];
-                var val = arguments[1];
-                var tag = arguments[2];
-                
-                // Get the native value setter for the correct prototype
-                var proto = (tag === 'textarea')
-                    ? window.HTMLTextAreaElement.prototype
-                    : window.HTMLInputElement.prototype;
-                var nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                nativeSetter.call(el, val);
-                
-                // Dispatch events that React listens for
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            """, element, text, tag)
-            time.sleep(0.5)
+            # 3. Paste via native OS clipboard
+            pyperclip.copy(str(text))
+            time.sleep(0.1)
+            element.send_keys(Keys.CONTROL, 'v')
+            time.sleep(random.uniform(0.4, 0.7))
 
-            # Verify the text actually stuck
+            # 4. Verify text stuck properly
             current_val = element.get_attribute("value") or ""
-            if current_val.strip() != text.strip():
-                # Fallback: clear and type character by character
-                print(f"React setter didn't stick, using keyboard fallback...")
-                try:
-                    element.click()
-                    element.send_keys(Keys.CONTROL, 'a')
-                    element.send_keys(Keys.BACKSPACE)
-                    time.sleep(0.2)
-                except Exception:
-                    pass
-                pyperclip.copy(text)
-                element.send_keys(Keys.CONTROL, 'v')
-                time.sleep(0.3)
+            if not current_val.strip() and str(text).strip():
+                # Fallback: Type with human-paced keystrokes
+                print("Clipboard paste fallback: typing with human keystroke intervals...")
+                element.click()
+                for char in str(text):
+                    element.send_keys(char)
+                    time.sleep(random.uniform(0.02, 0.06))
+
         except Exception as e:
             print(f"Safe paste error: {e}")
             try:
-                pyperclip.copy(text)
+                pyperclip.copy(str(text))
                 element.send_keys(Keys.CONTROL, 'a')
                 element.send_keys(Keys.CONTROL, 'v')
             except Exception:
-                element.send_keys(text)
+                element.send_keys(str(text))
+
 
 def check_scrollable_elements(driver):
     """Check and return all elements that can be scrolled"""

@@ -155,6 +155,10 @@ def _interruptible_sleep(seconds: float, stop_event: Optional[threading.Event], 
     return True
 
 
+_global_post_lock = threading.Lock()
+_global_last_post_time: float = 0.0
+
+
 # ── Account Worker Lifecycle Engine ─────────────────────────────────────────
 class AccountLifecycleWorker(threading.Thread):
     def __init__(
@@ -164,6 +168,7 @@ class AccountLifecycleWorker(threading.Thread):
         location_list: list,
         marketplace_location: str = "UK",
         time_sleep_cooldown: int = 1800,
+        wait_time_accounts: int = 2,
         wait_for_review: bool = False,
         stop_event: Optional[threading.Event] = None,
         semaphore: Optional[threading.Semaphore] = None,
@@ -177,6 +182,7 @@ class AccountLifecycleWorker(threading.Thread):
         self.location_list = location_list
         self.marketplace_location = marketplace_location
         self.time_sleep_cooldown = time_sleep_cooldown
+        self.wait_time_accounts = wait_time_accounts
         self.wait_for_review = wait_for_review
         self.stop_event = stop_event or threading.Event()
         self.semaphore = semaphore
@@ -184,6 +190,7 @@ class AccountLifecycleWorker(threading.Thread):
         self.failed_listings = []
 
     def run(self):
+        global _global_last_post_time
         email = self.email
         log_live_message(f"🚀 Worker started for account: {email} ({len(self.assigned_entries)} listings assigned)")
         update_account_state(email, state="QUEUED", details=f"Queued ({len(self.assigned_entries)} listings)")
@@ -197,7 +204,20 @@ class AccountLifecycleWorker(threading.Thread):
             loc = self.location_list[idx % len(self.location_list)] if self.location_list else ""
             title = entry[1].get() if len(entry) > 1 else f"Listing #{idx+1}"
 
-            # Acquire concurrency slot
+            # ── 1. Enforce Global Inter-Account Stagger Delay ──
+            if self.wait_time_accounts > 0:
+                with _global_post_lock:
+                    now = time.time()
+                    elapsed = now - _global_last_post_time
+                    if _global_last_post_time > 0 and elapsed < self.wait_time_accounts:
+                        stagger_wait = self.wait_time_accounts - elapsed
+                        log_live_message(f"⏳ [{email}] Waiting {int(stagger_wait)}s inter-account stagger delay to protect account...")
+                        update_account_state(email, state="COOLDOWN", details=f"Inter-Account Delay: {int(stagger_wait)}s remaining")
+                        if not _interruptible_sleep(stagger_wait, self.stop_event, email=email, state_label="Inter-Account Stagger Delay"):
+                            return
+                    _global_last_post_time = time.time()
+
+            # ── 2. Acquire concurrency slot ──
             update_account_state(email, state="WAITING_SLOT", details=f"Waiting for available browser slot to post '{title}'")
             if self.semaphore:
                 acquired = False
@@ -247,9 +267,22 @@ class AccountLifecycleWorker(threading.Thread):
 
                 service = Service(ChromeDriverManager().install())
                 driver = webdriver.Chrome(service=service, options=options)
+
+                # Apply CDP Anti-Detection Stealth Patches
+                try:
+                    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                        "source": """
+                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                            window.chrome = { runtime: {} };
+                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                        """
+                    })
+                except Exception:
+                    pass
+
                 with active_drivers_lock:
                     ACTIVE_DRIVERS.append(driver)
-
 
                 marker = profile_dir / "First_Login_Done.txt"
                 if not marker.exists():
@@ -258,11 +291,20 @@ class AccountLifecycleWorker(threading.Thread):
                 update_account_state(email, state="NAVIGATING", details="Navigating to Facebook Marketplace...")
                 check = move_to_path(driver)
                 if not check:
+                    # Organic entry: visit Facebook home first, simulate brief scroll, then go to marketplace
+                    driver.get("https://www.facebook.com")
+                    time.sleep(random.randint(3, 5))
+                    try:
+                        driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                    except Exception:
+                        pass
+                    time.sleep(random.randint(2, 4))
                     driver.get("https://www.facebook.com/marketplace/create/item")
                 else:
                     driver.refresh()
 
                 time.sleep(5)
+
 
                 (img_entries, title_entry, description_entry, category_entry, location_entry,
                  tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
@@ -505,12 +547,14 @@ def run_orchestrator(
             location_list=loc_list,
             marketplace_location=marketplace_location,
             time_sleep_cooldown=time_sleep,
+            wait_time_accounts=wait_time_accounts,
             wait_for_review=wait_for_review,
             stop_event=stop_event,
             semaphore=semaphore,
             max_review_timeout=max_review_timeout
         )
         workers.append(worker)
+
 
 
     # Stagger launch of worker threads
