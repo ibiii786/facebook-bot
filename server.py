@@ -1,5 +1,13 @@
 import os
 import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import json
 import subprocess
 import ast
@@ -8,6 +16,7 @@ import tkinter as tk
 from tkinter import filedialog
 import threading
 import pandas as pd
+
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware

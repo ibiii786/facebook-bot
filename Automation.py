@@ -1,7 +1,16 @@
+import sys
 import random
 import time
 import threading
 import os
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from selenium.webdriver.common.keys import Keys
 import pyperclip
 from Assets.Utils.ImageHandling.Handle_image import anti_fingerprint_image

@@ -6,6 +6,14 @@ import threading
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
@@ -22,6 +30,7 @@ from save_state import make_files, set_file_status
 
 CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
+
 
 # ── Global Thread-Safe Live Status Tracker ─────────────────────────────────
 _status_lock = threading.Lock()
@@ -439,11 +448,22 @@ def run_orchestrator(
     semaphore = threading.Semaphore(max_concurrent_browsers)
     workers: List[AccountLifecycleWorker] = []
 
-    for account, assigned in assignments:
+    for account_idx, (account, assigned) in enumerate(assignments):
         if not assigned:
             continue
 
-        loc_list = [entry[4].get() for entry in assigned if len(entry) > 4]
+        loc_list = []
+        for entry in assigned:
+            if len(entry) > 4:
+                loc_raw = entry[4].get()
+                loc_splits = [s.strip() for s in loc_raw.split("|") if s.strip()]
+                if loc_splits:
+                    loc_list.append(loc_splits[account_idx % len(loc_splits)])
+                else:
+                    loc_list.append(loc_raw.strip())
+            else:
+                loc_list.append("")
+
         worker = AccountLifecycleWorker(
             account_tuple=account,
             assigned_entries=assigned,
@@ -456,6 +476,7 @@ def run_orchestrator(
             max_review_timeout=max_review_timeout
         )
         workers.append(worker)
+
 
     # Stagger launch of worker threads
     for worker in workers:
