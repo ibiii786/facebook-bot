@@ -743,24 +743,14 @@ def api_media_preview(path: str = Query(...)):
 # ── Serve Static Web Frontend ───────────────────────────────────────────────
 web_dir = os.path.join(os.path.dirname(__file__), "web")
 if os.path.exists(web_dir):
-    app.mount("/static", StaticFiles(directory=web_dir), name="static")
-
-    @app.get("/")
-    def read_index():
-        return FileResponse(os.path.join(web_dir, "index.html"))
-
-    @app.get("/{file_name}")
-    def read_static_file(file_name: str):
-        file_path = os.path.join(web_dir, file_name)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            if file_name.endswith('.css'):
-                return FileResponse(file_path, media_type="text/css")
-            if file_name.endswith('.js'):
-                return FileResponse(file_path, media_type="application/javascript")
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(web_dir, "index.html"))
+    app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    print("\n========================================================")
+    print("🚀 Bot Dashboard running at: http://127.0.0.1:8000")
+    print("   Press CTRL+C in this terminal window to stop.")
+    print("========================================================\n")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+
