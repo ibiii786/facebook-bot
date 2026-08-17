@@ -96,8 +96,8 @@ class EntryAdapter:
             SimpleGetter(int(data.get("door_dropoff", 0))),
         ]
 
-    def __getitem__(self, idx: int):
-        items = [
+    def _items(self):
+        return [
             self.img_entries,
             self.title_entry,
             self.description_entry,
@@ -111,7 +111,15 @@ class EntryAdapter:
             self.wrapper,
             self.opt_vars,
         ]
-        return items[idx]
+
+    def __getitem__(self, idx: int):
+        return self._items()[idx]
+
+    def __len__(self) -> int:
+        return 12
+
+    def __iter__(self):
+        return iter(self._items())
 
 
 # ── Pydantic Request Models ────────────────────────────────────────────────
@@ -190,16 +198,24 @@ def run_bot_task(
     review_timeout_mins: int,
     stop_event: threading.Event
 ):
-    adapted_entries = [EntryAdapter(item) for item in entries_data]
-    run_fb_bot(
-        adapted_entries,
-        time_sleep=wait_time,
-        wait_time_accounts=wait_time_accounts,
-        marketplace_location=marketplace,
-        wait_for_review=wait_for_review,
-        stop_event=stop_event,
-        max_concurrent_browsers=max_concurrent_browsers
-    )
+    try:
+        adapted_entries = [EntryAdapter(item) for item in entries_data]
+        run_fb_bot(
+            adapted_entries,
+            time_sleep=wait_time,
+            wait_time_accounts=wait_time_accounts,
+            marketplace_location=marketplace,
+            wait_for_review=wait_for_review,
+            stop_event=stop_event,
+            max_concurrent_browsers=max_concurrent_browsers,
+            max_review_timeout=review_timeout_mins * 60
+        )
+    except Exception as e:
+        print(f"🚨 Error in run_bot_task: {e}")
+        from Open_fb import LIVE_BOT_STATE, _status_lock, log_live_message
+        log_live_message(f"🚨 Bot Task Error: {e}")
+        with _status_lock:
+            LIVE_BOT_STATE["status"] = "idle"
 
 
 def run_distribute_task(
@@ -212,16 +228,25 @@ def run_distribute_task(
     review_timeout_mins: int,
     stop_event: threading.Event
 ):
-    adapted_entries = [EntryAdapter(item) for item in entries_data]
-    distribute_among_accounts(
-        adapted_entries,
-        time_sleep=wait_time,
-        wait_time_accounts=wait_time_accounts,
-        marketplace_location=marketplace,
-        wait_for_review=wait_for_review,
-        stop_event=stop_event,
-        max_concurrent_browsers=max_concurrent_browsers
-    )
+    try:
+        adapted_entries = [EntryAdapter(item) for item in entries_data]
+        distribute_among_accounts(
+            adapted_entries,
+            time_sleep=wait_time,
+            wait_time_accounts=wait_time_accounts,
+            marketplace_location=marketplace,
+            wait_for_review=wait_for_review,
+            stop_event=stop_event,
+            max_concurrent_browsers=max_concurrent_browsers,
+            max_review_timeout=review_timeout_mins * 60
+        )
+    except Exception as e:
+        print(f"🚨 Error in run_distribute_task: {e}")
+        from Open_fb import LIVE_BOT_STATE, _status_lock, log_live_message
+        log_live_message(f"🚨 Distribute Bot Task Error: {e}")
+        with _status_lock:
+            LIVE_BOT_STATE["status"] = "idle"
+
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────

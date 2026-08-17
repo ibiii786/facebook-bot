@@ -542,7 +542,7 @@ def run_orchestrator(
 
 
 # ── Backwards Compatible Entry Points ───────────────────────────────────────
-def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2):
+def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2, max_review_timeout=1800):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
@@ -551,11 +551,12 @@ def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="U
         wait_for_review=wait_for_review,
         max_concurrent_browsers=max_concurrent_browsers,
         stop_event=stop_event,
+        max_review_timeout=max_review_timeout,
         distribution_mode="all"
     )
 
 
-def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2):
+def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2, max_review_timeout=1800):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
@@ -564,6 +565,7 @@ def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, ma
         wait_for_review=wait_for_review,
         max_concurrent_browsers=max_concurrent_browsers,
         stop_event=stop_event,
+        max_review_timeout=max_review_timeout,
         distribution_mode="distribute_chunks"
     )
 
