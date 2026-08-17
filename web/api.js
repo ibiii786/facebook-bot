@@ -78,6 +78,7 @@ async function runBot() {
       listings:    entries.map(collectEntryData),
       wait_time:   getWaitTimeSeconds(),
       marketplace: getMarketplace(),
+      wait_for_review: document.getElementById('wait-for-review')?.checked || false,
     };
     const result = await apiPost('/run-bot', payload);
     onBotComplete(result.failed_videos || {});
@@ -96,6 +97,7 @@ async function runDistributeBot() {
       listings:    entries.map(collectEntryData),
       wait_time:   getWaitTimeSeconds(),
       marketplace: getMarketplace(),
+      wait_for_review: document.getElementById('wait-for-review')?.checked || false,
     };
     const result = await apiPost('/distribute-bot', payload);
     onBotComplete(result.failed_videos || {});

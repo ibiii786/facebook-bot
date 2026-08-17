@@ -199,7 +199,7 @@ def find_and_click_button(driver, label_names, timeout=60):
         time.sleep(1.5)
     return False
 
-def go_to_items(driver,title,price,category,condition,description,availability,product_tags,location,images,video,public_meetup,door_meetup,door_dropoff,marketplace_location="UK"):
+def go_to_items(driver,title,price,category,condition,description,availability,product_tags,location,images,video,public_meetup,door_meetup,door_dropoff,marketplace_location="UK", wait_for_review=False):
     print(marketplace_location)
     check_policy_keywords(title, description, price)
     try:
@@ -558,8 +558,40 @@ def go_to_items(driver,title,price,category,condition,description,availability,p
         if not published_verified:
             print("⌛ 45s elapsed after clicking Publish. Finishing task...")
 
-        time.sleep(5)
-        return True
+        if not wait_for_review:
+            print("⌛ Wait for review OFF: Sleeping 90 seconds before finishing...")
+            time.sleep(90)
+            return True
+        else:
+            print("👁️ Wait for review ON: Navigating to Reels to mimic human behavior...")
+            try:
+                driver.get("https://www.facebook.com/reels/")
+                wait_duration = random.randint(300, 360) # Watch for 5-6 minutes
+                end_time = time.time() + wait_duration
+                body = driver.find_element("tag name", "body")
+                while time.time() < end_time:
+                    try:
+                        body.send_keys(Keys.PAGE_DOWN)
+                    except Exception:
+                        pass
+                    time.sleep(random.randint(8, 15))
+                
+                print("🔍 Checking listing status on Selling page...")
+                driver.get("https://www.facebook.com/marketplace/you/selling")
+                time.sleep(10)
+                
+                page_text = driver.execute_script("return document.body.innerText;").lower()
+                stuck_keywords = ["in review", "confirm your identity", "upload an id", "account restricted", "violation"]
+                
+                if any(kw in page_text for kw in stuck_keywords):
+                    print("⚠️ WARNING: Listing seems to be stuck in review or hit a checkpoint!")
+                    return "REVIEW_STUCK"
+                else:
+                    print("✅ Listing appears clear and active.")
+                    return True
+            except Exception as e:
+                print(f"Error during reels review wait: {e}")
+                return True
 
     except Exception as e:
         print("Error here in go_to_items")

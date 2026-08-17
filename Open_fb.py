@@ -12,9 +12,10 @@ import time
 from save_state import make_files,set_file_status
 CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
-def automation_worker(email, entries, list_location, marketplace_location="UK", proxy=None):
+def automation_worker(email, entries, list_location, marketplace_location="UK", proxy=None, wait_for_review=False):
     n_generated = []
     driver = None
+    keep_browser_open = False
     try:      
         safe_email = email_to_safe(email)
         base_profile_dir = Path("profiles")
@@ -61,8 +62,11 @@ def automation_worker(email, entries, list_location, marketplace_location="UK", 
                 images = [img.get() for img in img_entries]
                 video = video_entry.get().strip()
                 time.sleep(7)
-                check = go_to_items(driver, title, price, category, condition, description, availability, product_tags, list_location, images, video, opt_vars[0].get(), opt_vars[1].get(), opt_vars[2].get(), marketplace_location)
-                if not check:
+                check = go_to_items(driver, title, price, category, condition, description, availability, product_tags, list_location, images, video, opt_vars[0].get(), opt_vars[1].get(), opt_vars[2].get(), marketplace_location, wait_for_review)
+                if check == "REVIEW_STUCK":
+                    n_generated.append(f"{title} (⚠️ Stuck in Review - Browser Open)")
+                    keep_browser_open = True
+                elif not check:
                     n_generated.append((title))
                 else:
                     set_file_status(title, email)
@@ -73,7 +77,7 @@ def automation_worker(email, entries, list_location, marketplace_location="UK", 
         print(f"🚨 Error in automation_worker for {email}: {e}")
 
     finally:
-        if driver is not None:
+        if driver is not None and not keep_browser_open:
             try:
                 driver.quit()
             except Exception:
@@ -97,7 +101,7 @@ def read_multiple_credentials(path=CSV_PATH):
         print(f"Error reading credentials CSV: {e}")
     return creds
 
-def distribute_among_accounts(entries, time_sleep=1800, marketplace_location="UK"):
+def distribute_among_accounts(entries, time_sleep=1800, marketplace_location="UK", wait_for_review=False):
     not_gen_overall = {}
 
     if not os.path.exists(CSV_PATH):
@@ -140,7 +144,7 @@ def distribute_among_accounts(entries, time_sleep=1800, marketplace_location="UK
                     if account[0] not in not_gen_overall:
                         not_gen_overall[account[0]] = []
                     proxy = account[2] if len(account) > 2 else None
-                    result = automation_worker(account[0], [entry], entry[4].get(), marketplace_location, proxy=proxy)
+                    result = automation_worker(account[0], [entry], entry[4].get(), marketplace_location, proxy=proxy, wait_for_review=wait_for_review)
                     if result:
                         not_gen_overall[account[0]].extend(result)
                 except Exception as e:
@@ -163,7 +167,7 @@ def _interruptible_sleep(seconds, stop_event):
         time.sleep(min(1, end - time.time()))
     return True
 
-def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None):
+def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None):
     not_gen = {}
     if os.path.exists(CSV_PATH):
         accounts = read_multiple_credentials(CSV_PATH)
@@ -203,7 +207,7 @@ def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="U
                 if idx >= len(location_list):
                     idx = 0
                 proxy = account[2] if len(account) > 2 else None
-                result = automation_worker(account[0], [entries[entry_idx]], location_list[idx], marketplace_location, proxy=proxy)
+                result = automation_worker(account[0], [entries[entry_idx]], location_list[idx], marketplace_location, proxy=proxy, wait_for_review=wait_for_review)
                 if result:
                     not_gen[account[0]].extend(result)
             except Exception as e:

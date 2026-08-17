@@ -119,6 +119,7 @@ class BotRunRequest(BaseModel):
     wait_time: int = 2
     wait_time_accounts: int = 2
     marketplace: str = "UK"
+    wait_for_review: bool = False
 
 
 class CountRequest(BaseModel):
@@ -160,14 +161,14 @@ def api_load_session():
 
 import threading
 # ── Task Execution Handlers ─────────────────────────────────────────────────
-def run_bot_task(entries_data: List[dict], wait_time: int, wait_time_accounts: int, marketplace: str,stop_event: threading.Event):
+def run_bot_task(entries_data: List[dict], wait_time: int, wait_time_accounts: int, marketplace: str, wait_for_review: bool, stop_event: threading.Event):
     adapted_entries = [EntryAdapter(item) for item in entries_data]
-    run_fb_bot(adapted_entries, time_sleep=wait_time,wait_time_accounts=wait_time_accounts, marketplace_location=marketplace,stop_event=stop_event)
+    run_fb_bot(adapted_entries, time_sleep=wait_time,wait_time_accounts=wait_time_accounts, marketplace_location=marketplace, wait_for_review=wait_for_review, stop_event=stop_event)
 
 
-def run_distribute_task(entries_data: List[dict], wait_time: int, marketplace: str):
+def run_distribute_task(entries_data: List[dict], wait_time: int, marketplace: str, wait_for_review: bool):
     adapted_entries = [EntryAdapter(item) for item in entries_data]
-    distribute_among_accounts(adapted_entries, time_sleep=wait_time, marketplace_location=marketplace)
+    distribute_among_accounts(adapted_entries, time_sleep=wait_time, marketplace_location=marketplace, wait_for_review=wait_for_review)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -205,7 +206,7 @@ def api_run_bot(req: BotRunRequest):
 
     t = threading.Thread(
         target=run_bot_task,
-        args=(entries_data, req.wait_time, req.wait_time_accounts, req.marketplace, stop_event),
+        args=(entries_data, req.wait_time, req.wait_time_accounts, req.marketplace, req.wait_for_review, stop_event),
         daemon=True,
     )
     current_background_tasks.append(t)
@@ -223,7 +224,7 @@ def end_tasks():
 @app.post("/distribute-bot")
 def api_distribute_bot(req: BotRunRequest, background_tasks: BackgroundTasks):
     entries_data = [item.dict() for item in req.listings]
-    background_tasks.add_task(run_distribute_task, entries_data, req.wait_time, req.marketplace)
+    background_tasks.add_task(run_distribute_task, entries_data, req.wait_time, req.marketplace, req.wait_for_review)
     return {"status": "started", "message": "Distribution bot execution started in background."}
 
 
