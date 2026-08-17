@@ -202,135 +202,6 @@ def find_and_click_button(driver, label_names, timeout=60):
     return False
 
 
-STATUS_APPROVED = "STATUS_APPROVED"
-STATUS_FLAGGED = "STATUS_FLAGGED"
-STATUS_TIMEOUT = "STATUS_TIMEOUT"
-STATUS_IN_REVIEW = "STATUS_IN_REVIEW"
-
-def monitor_listing_review_and_warmup(
-    driver,
-    title: str = "",
-    stop_event: threading.Event = None,
-    check_interval: int = 60,
-    max_timeout: int = 1800,
-    status_callback = None
-):
-    """
-    Simulates natural human behavior by browsing Facebook Reels while periodically
-    navigating back to check if the listing's review phase has completed or if an account
-    checkpoint / policy restriction was triggered.
-
-    Returns:
-      STATUS_APPROVED: Review passed, listing is live and active (browser can close & enter cooldown).
-      STATUS_FLAGGED: Checkpoint or policy issue detected (browser MUST remain open).
-      STATUS_TIMEOUT: Maximum review duration exceeded (browser remains open for safety).
-    """
-    print(f"👁️ Starting Human Warmup (Reels) & Review Watch for '{title}' (Check every {check_interval}s, Max {int(max_timeout/60)}m)...")
-    start_time = time.time()
-    check_count = 0
-
-    flag_keywords = [
-        "confirm your identity",
-        "upload an id",
-        "account restricted",
-        "your account has been disabled",
-        "identity confirmation",
-        "we've removed your listing",
-        "policy violation",
-        "listing violates",
-        "has been flagged",
-        "restricted from using marketplace",
-        "action required"
-    ]
-
-    review_keywords = [
-        "in review",
-        "under review",
-        "pending review",
-        "is in review"
-    ]
-
-    while time.time() - start_time < max_timeout:
-        if stop_event is not None and stop_event.is_set():
-            print(f"🛑 Review watch interrupted by stop signal for '{title}'.")
-            return "STOPPED"
-
-        # ── 1. Navigate to Reels and simulate human watching & scrolling ──
-        try:
-            cur_url = driver.current_url.lower()
-            if "facebook.com/reels" not in cur_url:
-                driver.get("https://www.facebook.com/reels/")
-                time.sleep(random.randint(4, 7))
-
-            reels_end = time.time() + check_interval
-            while time.time() < reels_end:
-                if stop_event is not None and stop_event.is_set():
-                    return "STOPPED"
-
-                elapsed_mins = round((time.time() - start_time) / 60, 1)
-                if status_callback:
-                    status_callback({
-                        "stage": "REELS_WARMUP",
-                        "elapsed_mins": elapsed_mins,
-                        "check_count": check_count
-                    })
-
-                try:
-                    body = driver.find_element("tag name", "body")
-                    body.send_keys(Keys.PAGE_DOWN)
-                except Exception:
-                    pass
-
-                # Emulate watching a reel for 8 to 15 seconds
-                sleep_duration = random.randint(8, 15)
-                sub_end = time.time() + sleep_duration
-                while time.time() < sub_end:
-                    if stop_event is not None and stop_event.is_set():
-                        return "STOPPED"
-                    time.sleep(0.5)
-        except Exception as e:
-            print(f"Error during reels scrolling for '{title}': {e}")
-
-        check_count += 1
-        elapsed_mins = round((time.time() - start_time) / 60, 1)
-        print(f"🔍 [Check #{check_count} | {elapsed_mins}m elapsed] Checking listing review status for '{title}'...")
-
-        if status_callback:
-            status_callback({
-                "stage": "CHECKING_REVIEW",
-                "elapsed_mins": elapsed_mins,
-                "check_count": check_count
-            })
-
-        # ── 2. Check Selling Page for Review Status & Checkpoints ──
-        try:
-            driver.get("https://www.facebook.com/marketplace/you/selling")
-            time.sleep(random.randint(6, 9))
-
-            page_text = driver.execute_script("return document.body.innerText;").lower()
-
-            # Check for critical flags / checkpoints
-            if any(kw in page_text for kw in flag_keywords):
-                print(f"🚨 CHECKPOINT / RESTRICTION DETECTED for '{title}'! Keeping browser open for manual review.")
-                return STATUS_FLAGGED
-
-            # Check if still in review
-            if any(kw in page_text for kw in review_keywords):
-                print(f"⏳ Listing '{title}' is still in review ({elapsed_mins}m elapsed). Returning to Reels...")
-                continue
-
-            # If no flag keywords and no review keywords, listing is active & approved!
-            print(f"✅ Listing '{title}' is APPROVED & ACTIVE! Review phase complete after {elapsed_mins} minutes.")
-            return STATUS_APPROVED
-
-        except Exception as e:
-            print(f"Error checking selling page for '{title}': {e}")
-            time.sleep(5)
-
-    print(f"⌛ Review wait timeout ({int(max_timeout/60)} minutes) reached for '{title}'.")
-    return STATUS_TIMEOUT
-
-
 def go_to_items(
     driver,
     title,
@@ -346,15 +217,12 @@ def go_to_items(
     public_meetup,
     door_meetup,
     door_dropoff,
-    marketplace_location="UK",
-    wait_for_review=False,
-    stop_event=None,
-    status_callback=None,
-    max_review_timeout=1800
+    marketplace_location="UK"
 ):
-    print(marketplace_location)
+    print(f"📍 Location setting: {marketplace_location}")
     check_policy_keywords(title, description, price)
     try:
+
 
         seed=int(time.time())
         random.seed(seed)
@@ -709,25 +577,12 @@ def go_to_items(
             time.sleep(2)
 
         if not published_verified:
-            print("⌛ 45s elapsed after clicking Publish. Finishing task...")
+            print("⌛ Finishing publication...")
 
-        if not wait_for_review:
-            print("⌛ Wait for review OFF: Sleeping 30 seconds before finishing...")
-            time.sleep(30)
-            return True
-        else:
-            result = monitor_listing_review_and_warmup(
-                driver=driver,
-                title=title,
-                stop_event=stop_event,
-                check_interval=60,
-                max_timeout=max_review_timeout,
-                status_callback=status_callback
-            )
-            return result
+        time.sleep(random.randint(8, 12))
+        return True
 
     except Exception as e:
-        print("Error here in go_to_items")
-        print(e)
-        time.sleep(random.randint(5, 7))
+        print(f"Error during listing automation: {e}")
+        time.sleep(random.randint(3, 5))
         return False

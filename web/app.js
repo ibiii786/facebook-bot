@@ -938,13 +938,10 @@ function getFullSessionData() {
   return {
     settings: {
       marketplace: document.getElementById('marketplace')?.value || 'UK',
-      maxConcurrentBrowsers: document.getElementById('max-concurrent-browsers')?.value || '2',
       waitTime: document.getElementById('wait-value')?.value || '2',
       waitUnit: document.getElementById('wait-unit')?.value || 'seconds',
       waitTimeAccount: document.getElementById('wait-value-account')?.value || '2',
       waitUnitAccount: document.getElementById('wait-unit-account')?.value || 'seconds',
-      waitForReview: !!document.getElementById('wait-for-review')?.checked,
-      reviewTimeoutMins: document.getElementById('review-timeout-mins')?.value || '30',
     },
     defaults: {
       category: document.getElementById('default-category')?.value || 'Furniture',
@@ -1019,16 +1016,12 @@ function restoreFullSession(data) {
     if (data.settings) {
       const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
       set('marketplace', data.settings.marketplace);
-      set('max-concurrent-browsers', data.settings.maxConcurrentBrowsers);
       set('wait-value', data.settings.waitTime);
       set('wait-unit', data.settings.waitUnit);
       set('wait-value-account', data.settings.waitTimeAccount);
       set('wait-unit-account', data.settings.waitUnitAccount);
-      set('review-timeout-mins', data.settings.reviewTimeoutMins);
-      if (document.getElementById('wait-for-review') && data.settings.waitForReview !== undefined) {
-        document.getElementById('wait-for-review').checked = !!data.settings.waitForReview;
-      }
     }
+
 
 
     // 2. Defaults

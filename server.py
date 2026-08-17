@@ -193,9 +193,6 @@ def run_bot_task(
     wait_time: int,
     wait_time_accounts: int,
     marketplace: str,
-    wait_for_review: bool,
-    max_concurrent_browsers: int,
-    review_timeout_mins: int,
     stop_event: threading.Event
 ):
     try:
@@ -205,10 +202,7 @@ def run_bot_task(
             time_sleep=wait_time,
             wait_time_accounts=wait_time_accounts,
             marketplace_location=marketplace,
-            wait_for_review=wait_for_review,
-            stop_event=stop_event,
-            max_concurrent_browsers=max_concurrent_browsers,
-            max_review_timeout=review_timeout_mins * 60
+            stop_event=stop_event
         )
     except Exception as e:
         print(f"🚨 Error in run_bot_task: {e}")
@@ -223,9 +217,6 @@ def run_distribute_task(
     wait_time: int,
     wait_time_accounts: int,
     marketplace: str,
-    wait_for_review: bool,
-    max_concurrent_browsers: int,
-    review_timeout_mins: int,
     stop_event: threading.Event
 ):
     try:
@@ -235,10 +226,7 @@ def run_distribute_task(
             time_sleep=wait_time,
             wait_time_accounts=wait_time_accounts,
             marketplace_location=marketplace,
-            wait_for_review=wait_for_review,
-            stop_event=stop_event,
-            max_concurrent_browsers=max_concurrent_browsers,
-            max_review_timeout=review_timeout_mins * 60
+            stop_event=stop_event
         )
     except Exception as e:
         print(f"🚨 Error in run_distribute_task: {e}")
@@ -291,9 +279,6 @@ def api_run_bot(req: BotRunRequest):
             req.wait_time,
             req.wait_time_accounts,
             req.marketplace,
-            req.wait_for_review,
-            req.max_concurrent_browsers,
-            req.review_timeout_mins,
             stop_event
         ),
         daemon=True,
@@ -315,9 +300,6 @@ def api_distribute_bot(req: BotRunRequest):
             req.wait_time,
             req.wait_time_accounts,
             req.marketplace,
-            req.wait_for_review,
-            req.max_concurrent_browsers,
-            req.review_timeout_mins,
             stop_event
         ),
         daemon=True,

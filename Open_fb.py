@@ -17,13 +17,8 @@ if sys.platform == "win32":
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from Automation import (
-    go_to_items,
-    STATUS_APPROVED,
-    STATUS_FLAGGED,
-    STATUS_TIMEOUT,
-    STATUS_IN_REVIEW
-)
+from Automation import go_to_items
+
 from login_profile import email_to_safe
 from path import move_to_path
 from save_state import make_files, set_file_status
@@ -319,30 +314,6 @@ class AccountLifecycleWorker(threading.Thread):
                 images = [img.get() for img in img_entries if img.get()]
                 video = video_entry.get().strip()
 
-                def status_cb(data):
-                    stg = data.get("stage", "")
-                    el_m = data.get("elapsed_mins", 0.0)
-                    chk = data.get("check_count", 0)
-                    if stg == "REELS_WARMUP":
-                        update_account_state(
-                            email,
-                            state="REELS_WARMUP",
-                            details=f"Watching Reels ({el_m}m) | Check #{chk}",
-                            stage="REELS",
-                            elapsed_mins=el_m
-                        )
-                    elif stg == "CHECKING_REVIEW":
-                        update_account_state(
-                            email,
-                            state="CHECKING_REVIEW",
-                            details=f"Checking Marketplace Selling page ({el_m}m)...",
-                            stage="REVIEW_CHECK",
-                            elapsed_mins=el_m
-                        )
-
-                update_account_state(email, state="POSTING", details=f"Automating listing form for '{post_title}'")
-                log_live_message(f"📝 [{email}] Posting listing: '{post_title}' (${price})")
-
                 result = go_to_items(
                     driver=driver,
                     title=post_title,
@@ -358,41 +329,17 @@ class AccountLifecycleWorker(threading.Thread):
                     public_meetup=opt_vars[0].get(),
                     door_meetup=opt_vars[1].get(),
                     door_dropoff=opt_vars[2].get(),
-                    marketplace_location=self.marketplace_location,
-                    wait_for_review=self.wait_for_review,
-                    stop_event=self.stop_event,
-                    status_callback=status_cb,
-                    max_review_timeout=self.max_review_timeout
+                    marketplace_location=self.marketplace_location
                 )
 
-                if result == STATUS_APPROVED or result is True:
-                    log_live_message(f"✅ [{email}] Listing '{post_title}' APPROVED & ACTIVE!")
+                if result:
+                    log_live_message(f"✅ [{email}] Listing '{post_title}' published successfully!")
                     set_file_status(post_title, email)
                     with _status_lock:
                         LIVE_BOT_STATE["completed_listings"] += 1
-                    update_account_state(email, state="APPROVED", details=f"Approved & Live: '{post_title}'")
-
-                elif result in [STATUS_FLAGGED, "REVIEW_STUCK"]:
-                    log_live_message(f"⚠️ [{email}] Checkpoint / Flag detected on '{post_title}'! Leaving browser window open.")
-                    keep_browser_open = True
-                    self.failed_listings.append(f"{post_title} (⚠️ Flagged - Browser Left Open)")
-                    update_account_state(email, state="FLAGGED", details="⚠️ Action Required: Browser left open for manual inspection", stage="FLAGGED")
-                    break  # Halt further posts on this flagged account
-
-                elif result == STATUS_TIMEOUT:
-                    log_live_message(f"⌛ [{email}] Review timeout for '{post_title}'. Leaving browser open for safety.")
-                    keep_browser_open = True
-                    self.failed_listings.append(f"{post_title} (⌛ Review Timeout)")
-                    update_account_state(email, state="TIMEOUT", details="⌛ Review Timeout: Browser open", stage="TIMEOUT")
-                    break
-
-                elif result == "STOPPED":
-                    log_live_message(f"🛑 [{email}] Stopped during listing execution.")
-                    update_account_state(email, state="STOPPED", details="Halted by user")
-                    return
-
+                    update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'")
                 else:
-                    log_live_message(f"❌ [{email}] Failed to post '{post_title}'.")
+                    log_live_message(f"❌ [{email}] Failed to publish '{post_title}'.")
                     self.failed_listings.append(post_title)
                     update_account_state(email, state="FAILED", details=f"Failed posting '{post_title}'")
 
@@ -400,6 +347,7 @@ class AccountLifecycleWorker(threading.Thread):
                 log_live_message(f"🚨 [{email}] Error during execution: {e}")
                 self.failed_listings.append(f"{title} (Error: {str(e)[:50]})")
                 update_account_state(email, state="ERROR", details=f"Error: {str(e)[:60]}")
+
 
             finally:
                 if driver is not None:
@@ -585,31 +533,26 @@ def run_orchestrator(
 
 
 
-# ── Backwards Compatible Entry Points ───────────────────────────────────────
-def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2, max_review_timeout=1800):
+def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
-        wait_for_review=wait_for_review,
-        max_concurrent_browsers=max_concurrent_browsers,
         stop_event=stop_event,
-        max_review_timeout=max_review_timeout,
         distribution_mode="all"
     )
 
+run_fb_bot = main
 
-def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2, max_review_timeout=1800):
+
+def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
-        wait_for_review=wait_for_review,
-        max_concurrent_browsers=max_concurrent_browsers,
         stop_event=stop_event,
-        max_review_timeout=max_review_timeout,
         distribution_mode="distribute_chunks"
     )
 

@@ -120,13 +120,10 @@ async function runBot() {
 
   try {
     const payload = {
-      listings:                entries.map(collectEntryData),
-      wait_time:               getWaitTimeSeconds(''),
-      wait_time_accounts:      getWaitTimeSeconds('-account'),
-      marketplace:             getMarketplace(),
-      wait_for_review:         document.getElementById('wait-for-review')?.checked || false,
-      max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
-      review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
+      listings:           entries.map(collectEntryData),
+      wait_time:          getWaitTimeSeconds(''),
+      wait_time_accounts: getWaitTimeSeconds('-account'),
+      marketplace:        getMarketplace()
     };
     await apiPost('/run-bot', payload);
   } catch (err) {
@@ -149,13 +146,10 @@ async function runDistributeBot() {
 
   try {
     const payload = {
-      listings:                entries.map(collectEntryData),
-      wait_time:               getWaitTimeSeconds(''),
-      wait_time_accounts:      getWaitTimeSeconds('-account'),
-      marketplace:             getMarketplace(),
-      wait_for_review:         document.getElementById('wait-for-review')?.checked || false,
-      max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
-      review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
+      listings:           entries.map(collectEntryData),
+      wait_time:          getWaitTimeSeconds(''),
+      wait_time_accounts: getWaitTimeSeconds('-account'),
+      marketplace:        getMarketplace()
     };
     await apiPost('/distribute-bot', payload);
   } catch (err) {
@@ -166,6 +160,7 @@ async function runDistributeBot() {
     }
   }
 }
+
 
 
 
