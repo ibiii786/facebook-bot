@@ -139,26 +139,46 @@ def create_states(main_grid,df):
             row['Description'] = row['Description'][:20] + "..."
         first_name = row['Name']
         name=first_name.split("||||")[1] if '||||' in first_name else first_name
+        name_display = name if len(name) < 30 else name[:20] + "..."
+        title_val = row['Title']
+        title_display = title_val if len(title_val) < 30 else title_val[:20] + "..."
+        price_val = row['Price']
+        cat_val = row['Category']
+        cond_val = row['Condition']
+        desc_val = row['Description']
+        desc_display = desc_val if len(desc_val) < 30 else desc_val[:20] + "..."
+        avail_val = row['Availability']
+        tags_val = row['Product_Tags']
+        tags_display = tags_val if len(tags_val) <= 0 else str(tags_val[0]) + "..."
+        images_val = row['Images']
+        img_first = images_val[0] if images_val else ""
+        img_display = img_first if len(img_first) < 30 else img_first[:20] + "..."
+        loc_val = row['Location']
+        pub_meetup = bool(row['public_meetup'])
+        door_drop = bool(row['door_dropoff'])
+        door_meet = bool(row['door_meetup'])
+        market_loc = row["Market_Location"]
         label_lines = [
-            f"Email: {name if len(name)<30 else name[:20]}"+("..." if len(name)>20 else ""),
-            f"Title: {row['Title'] if len(row['Title'])<30 else row['Title'][:20]}"+("..." if len(row['Title'])>20 else ""),
-            f"Price: {row['Price']}",
-            f"Category: {row['Category']}",
-            f"Condition: {row['Condition']}",
-            f"Description: {row['Description'] if len(row['Description'])<30 else row['Description'][:20]}"+("..." if len(row['Description'])>20 else ""),
-            f"Availability: {row['Availability']}",
-            f"Product Tags: {row['Product_Tags'] if len(row['Product_Tags'])<=0 else row['Product_Tags'][0]}"+("..." if len(row['Product_Tags'])>0 else ""),
-            f"Images: {row['Images'][0] if len(row['Images'][0])<30 else row['Images'][0][:20]}"+("..." if len(row['Images'])>0 or len(row["Images"][0])>20 else ""),
-            f"Location: {row['Location']}",
-            f"Public Meetup: {False if row['public_meetup']==0 else True}",
-            f"Door Dropoff: {False if row['door_dropoff']==0 else True}",
-            f"Door Meetup: {False if row['door_meetup']==0 else True}",
-            f"Marketplace: {row["Market_Location"]}"
+            f"Email: {name_display}",
+            f"Title: {title_display}",
+            f"Price: {price_val}",
+            f"Category: {cat_val}",
+            f"Condition: {cond_val}",
+            f"Description: {desc_display}",
+            f"Availability: {avail_val}",
+            f"Product Tags: {tags_display}",
+            f"Images: {img_display}",
+            f"Location: {loc_val}",
+            f"Public Meetup: {pub_meetup}",
+            f"Door Dropoff: {door_drop}",
+            f"Door Meetup: {door_meet}",
+            f"Marketplace: {market_loc}"
         ]
 
         # Only add Video if it's not empty
-        if str(row['Video']).strip():
-            label_lines.insert(8, f"Video: {row['Video']}")  # after Images
+        video_val = row['Video']
+        if str(video_val).strip():
+            label_lines.insert(8, f"Video: {video_val}")  # after Images
 
         label_text = "\n".join(label_lines)
         label = tk.Label(state_frame, text=label_text, justify="left", anchor="w", bg=bg_color, fg="white")

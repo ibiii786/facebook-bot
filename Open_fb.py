@@ -424,8 +424,10 @@ class AccountLifecycleWorker(threading.Thread):
 
             except Exception as e:
                 log_live_message(f"🚨 [{email}] Error during execution: {e}")
-                self.failed_listings.append(f"{title} (Error: {str(e)[:50]})")
-                update_account_state(email, state="ERROR", details=f"Error: {str(e)[:60]}")
+                err_short = str(e)[:50]
+                self.failed_listings.append(f"{title} (Error: {err_short})")
+                err_detail = str(e)[:60]
+                update_account_state(email, state="ERROR", details=f"Error: {err_detail}")
 
             finally:
                 if driver is not None:
@@ -546,7 +548,8 @@ def run_orchestrator(
                 "browser_open": False
             }
 
-    log_live_message(f"🚀 Launching Orchestrator: {len(accounts)} Accounts, {LIVE_BOT_STATE['total_listings']} Total Listings, Max {max_concurrent_browsers} Concurrent Browsers")
+    total = LIVE_BOT_STATE['total_listings']
+    log_live_message(f"🚀 Launching Orchestrator: {len(accounts)} Accounts, {total} Total Listings, Max {max_concurrent_browsers} Concurrent Browsers")
 
     semaphore = threading.Semaphore(max_concurrent_browsers)
     workers: List[AccountLifecycleWorker] = []
