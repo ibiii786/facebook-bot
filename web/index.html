@@ -207,20 +207,35 @@
         </div>
       </div>
 
-      <!-- Tab 4: Accounts -->
+      <!-- Tab 4: Accounts & Flagged Status -->
       <div id="tab-accounts" class="tab-content">
         <div class="settings-grid">
           
           <div class="panel-card">
-            <h2>Account Management</h2>
+            <h2>Account Profiles & Proxies</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">Manage Chrome login profiles, credentials, and dedicated proxies per account.</p>
             <div class="btn-grid">
               <button id="btn-accounts" class="btn btn-secondary" onclick="loadAccountsModal()">Manage Accounts & Proxies</button>
-              <button id="btn-distribute" class="btn btn-secondary" onclick="runDistributeBot()">Distribute Accounts</button>
+              <button class="btn btn-ghost" onclick="loadFlaggedAccountsFromUI()">Refresh Health Status</button>
+            </div>
+          </div>
+
+          <div class="panel-card" style="grid-column: 1 / -1;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h2>Flagged & Restricted Accounts (<span id="flagged-count">0</span>)</h2>
+              <button class="btn btn-ghost btn-sm" onclick="loadFlaggedAccountsFromUI()">Refresh</button>
+            </div>
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">
+              Accounts flagged during deferred review or checkpoint inspection. Flagged accounts are <strong>automatically skipped</strong> by the bot in subsequent runs to avoid further restrictions.
+            </p>
+            <div id="flagged-accounts-list" class="saved-list">
+              <div class="monitor-empty-state">✅ No accounts are currently flagged. All accounts are in good standing.</div>
             </div>
           </div>
 
         </div>
       </div>
+
 
     </div>
   </div>

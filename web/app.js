@@ -25,12 +25,18 @@ function switchTab(tabId) {
   
   const activeContent = document.getElementById(tabId);
   if (activeContent) activeContent.classList.add('active');
+
+  if (tabId === 'tab-accounts') {
+    loadFlaggedAccountsFromUI();
+  }
 }
 document.addEventListener('DOMContentLoaded', () => {
   const stop_btn = document.getElementById('btn-stop');
   if (stop_btn) stop_btn.disabled = true;
   loadSessionOnStartup();
+  loadFlaggedAccountsFromUI();
 });
+
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
@@ -930,7 +936,64 @@ async function deleteAccountFromUI(email) {
   }
 }
 
+// ── Flagged Accounts Dashboard Management ───────────────────────────────────
+
+async function loadFlaggedAccountsFromUI() {
+  const container = document.getElementById('flagged-accounts-list');
+  const countEl = document.getElementById('flagged-count');
+  if (!container) return;
+
+  try {
+    const res = await fetchFlaggedAccountsAPI();
+    const map = res?.flagged_accounts || {};
+    const emails = Object.keys(map);
+
+    if (countEl) countEl.textContent = emails.length;
+
+    if (emails.length === 0) {
+      container.innerHTML = `<div class="monitor-empty-state">✅ No accounts are currently flagged. All accounts are in good standing.</div>`;
+      return;
+    }
+
+    container.innerHTML = emails.map(email => {
+      const item = map[email];
+      return `
+        <div class="saved-item" style="border-left: 3px solid #ff4444; background: rgba(255, 68, 68, 0.05); padding: 12px 14px; margin-bottom: 8px;">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="color:#ff4444; font-weight:600; font-size:14px;">⚠️ ${email}</span>
+              <span class="badge" style="background:#ff444422; color:#ff4444; border:1px solid #ff444444; font-size:11px; padding:2px 6px; border-radius:4px;">FLAGGED / AUTO-SKIPPED</span>
+            </div>
+            <div style="font-size:13px; color:var(--text-main); font-weight:500;">
+              <strong>Reason:</strong> ${item.reason || 'Restricted / Checkpoint'}
+            </div>
+            <div style="font-size:12px; color:var(--text-muted);">
+              ${item.listing_title ? `Listing: "${item.listing_title}" • ` : ''}Flagged: ${item.timestamp || 'Recently'}
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="align-self:center;" onclick="unflagAccountFromUI('${email}')">Unflag Account</button>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--text-muted); padding:10px;">Failed to load flagged accounts: ${err.message}</div>`;
+  }
+}
+
+async function unflagAccountFromUI(email) {
+  if (!confirm(`Unflag account '${email}'? This will re-enable the account for future bot runs.`)) return;
+  try {
+    await unflagAccountAPI(email);
+    setStatus(`Unflagged ${email}`, 'success');
+    loadFlaggedAccountsFromUI();
+  } catch (err) {
+    alert(`Unflag failed: ${err.message}`);
+  }
+}
+
 // ── Session State Persistence (Auto-Save & Restore) ──────────────────────────
+
 
 let autoSaveTimer = null;
 

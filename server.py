@@ -323,8 +323,27 @@ def end_tasks():
 
 
 
+class UnflagRequest(BaseModel):
+    email: str
+
+
+@app.get("/flagged-accounts")
+def api_get_flagged_accounts():
+    from Open_fb import load_flagged_accounts
+    data = load_flagged_accounts()
+    return {"status": "success", "flagged_accounts": data}
+
+
+@app.post("/unflag-account")
+def api_unflag_account(req: UnflagRequest):
+    from Open_fb import unflag_account
+    unflag_account(req.email)
+    return {"status": "success", "message": f"Account {req.email} unflagged successfully."}
+
+
 @app.post("/renew")
 def api_renew(req: CountRequest, background_tasks: BackgroundTasks):
+
     background_tasks.add_task(renew_main, req.count, "renew")
     return {"status": "started", "message": f"Renew listings ({req.count}) started in background."}
 

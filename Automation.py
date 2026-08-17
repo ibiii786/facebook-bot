@@ -202,7 +202,158 @@ def find_and_click_button(driver, label_names, timeout=60):
     return False
 
 
+
+def simulate_random_human_activity(driver, stop_event=None):
+
+    """
+    Simulates highly natural, randomized human post-listing browsing.
+    Stays 10-30 seconds total, picking randomly among Home feed, Reels, Watch, or Groups
+    with variable scroll speeds, direction reversals, and natural pauses.
+    """
+    print("🎭 Starting post-listing randomized human simulation...")
+    total_target_seconds = random.randint(12, 28)
+    start_time = time.time()
+
+    # 1. Brief initial pause on current page
+    initial_pause = random.uniform(3.0, 6.0)
+    time.sleep(initial_pause)
+
+    modes = ["HOME_FEED", "REELS", "WATCH", "GROUPS"]
+    mode = random.choice(modes)
+
+    try:
+        if mode == "HOME_FEED":
+            print(f"🏠 [Simulation] Navigating to Home feed for {total_target_seconds}s...")
+            driver.get("https://www.facebook.com")
+            time.sleep(random.uniform(3.0, 5.0))
+
+            while time.time() - start_time < total_target_seconds:
+                if stop_event and stop_event.is_set():
+                    break
+                # Scroll down
+                scroll_down_duration = random.randint(3, 6)
+                scroll_end = time.time() + scroll_down_duration
+                while time.time() < scroll_end:
+                    try:
+                        driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                    except Exception:
+                        pass
+                    time.sleep(random.uniform(1.2, 2.5))
+
+                # Brief pause like reading a post
+                time.sleep(random.uniform(2.0, 4.0))
+
+                # Occasional scroll up
+                if random.random() < 0.4:
+                    try:
+                        driver.find_element("tag name", "body").send_keys(Keys.PAGE_UP)
+                    except Exception:
+                        pass
+                    time.sleep(random.uniform(1.5, 3.0))
+
+        elif mode == "REELS":
+            print(f"🎬 [Simulation] Navigating to Facebook Reels for {total_target_seconds}s...")
+            driver.get("https://www.facebook.com/reels/")
+            time.sleep(random.uniform(3.5, 6.0))
+
+            while time.time() - start_time < total_target_seconds:
+                if stop_event and stop_event.is_set():
+                    break
+                # Watch reel for 5-10 seconds
+                watch_time = random.uniform(5.0, 10.0)
+                sub_end = time.time() + watch_time
+                while time.time() < sub_end:
+                    if stop_event and stop_event.is_set():
+                        break
+                    time.sleep(0.5)
+                # Next reel
+                try:
+                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                except Exception:
+                    pass
+                time.sleep(random.uniform(1.0, 2.0))
+
+        elif mode == "WATCH":
+            print(f"📺 [Simulation] Navigating to Facebook Watch videos for {total_target_seconds}s...")
+            driver.get("https://www.facebook.com/watch")
+            time.sleep(random.uniform(3.5, 5.5))
+
+            while time.time() - start_time < total_target_seconds:
+                if stop_event and stop_event.is_set():
+                    break
+                try:
+                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                except Exception:
+                    pass
+                time.sleep(random.uniform(2.5, 5.0))
+
+        else:  # GROUPS
+            print(f"👥 [Simulation] Navigating to Facebook Groups feed for {total_target_seconds}s...")
+            driver.get("https://www.facebook.com/groups/feed/")
+            time.sleep(random.uniform(3.5, 5.5))
+
+            while time.time() - start_time < total_target_seconds:
+                if stop_event and stop_event.is_set():
+                    break
+                try:
+                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                except Exception:
+                    pass
+                time.sleep(random.uniform(2.5, 4.5))
+
+    except Exception as e:
+        print(f"Note during simulation: {e}")
+
+    print("✨ Post-listing human simulation complete.")
+
+
+def check_account_health_and_previous_listing(driver):
+    """
+    Navigates to the Marketplace Selling dashboard to inspect:
+    1. Account checkpoints / identity verification blocks.
+    2. Marketplace bans / policy restrictions.
+    3. Listing violations or removed listings.
+
+    Returns (is_healthy: bool, flag_reason: str).
+    If is_healthy is False, the caller will flag this ID and skip subsequent posts.
+    """
+    print("🔍 Inspecting account health and Marketplace Selling status...")
+    flag_keywords = {
+        "confirm your identity": "Identity Confirmation Checkpoint Triggered",
+        "upload an id": "Upload ID Verification Required",
+        "account restricted": "Account Restricted by Facebook",
+        "your account has been disabled": "Account Disabled",
+        "identity confirmation": "Identity Confirmation Required",
+        "we've removed your listing": "Listing Removed for Policy Violation",
+        "policy violation": "Policy Violation Detected",
+        "listing violates": "Listing Violates Marketplace Commerce Policies",
+        "has been flagged": "Listing / Account Flagged by Automated Review",
+        "restricted from using marketplace": "Marketplace Access Restricted",
+        "action required": "Action Required / Account Verification Needed",
+        "request review": "Listing Rejected (Request Review Notice Visible)"
+    }
+
+    try:
+        driver.get("https://www.facebook.com/marketplace/you/selling")
+        time.sleep(random.uniform(5.0, 7.5))
+
+        page_text = driver.execute_script("return document.body.innerText;").lower()
+
+        for kw, reason in flag_keywords.items():
+            if kw in page_text:
+                print(f"🚨 CRITICAL ACCOUNT FLAG DETECTED: {reason}")
+                return False, reason
+
+        print("✅ Account health check passed. No restrictions or flags detected.")
+        return True, ""
+
+    except Exception as e:
+        print(f"Warning during health check: {e}")
+        return True, ""
+
+
 def go_to_items(
+
     driver,
     title,
     price,

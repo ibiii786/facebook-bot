@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import time
 import random
 import threading
@@ -17,7 +18,11 @@ if sys.platform == "win32":
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from Automation import go_to_items
+from Automation import (
+    go_to_items,
+    simulate_random_human_activity,
+    check_account_health_and_previous_listing
+)
 
 from login_profile import email_to_safe
 from path import move_to_path
@@ -25,6 +30,55 @@ from save_state import make_files, set_file_status
 
 CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
+FLAGGED_ACCOUNTS_FILE = "flagged_accounts.json"
+
+_flag_lock = threading.Lock()
+
+def load_flagged_accounts() -> Dict[str, dict]:
+    with _flag_lock:
+        if not os.path.exists(FLAGGED_ACCOUNTS_FILE):
+            return {}
+        try:
+            with open(FLAGGED_ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+def flag_account(email: str, reason: str, listing_title: str = ""):
+    with _flag_lock:
+        data = {}
+        if os.path.exists(FLAGGED_ACCOUNTS_FILE):
+            try:
+                with open(FLAGGED_ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+        data[email] = {
+            "email": email,
+            "reason": reason,
+            "listing_title": listing_title,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        try:
+            with open(FLAGGED_ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error saving flagged accounts: {e}")
+
+def unflag_account(email: str):
+    with _flag_lock:
+        if not os.path.exists(FLAGGED_ACCOUNTS_FILE):
+            return
+        try:
+            with open(FLAGGED_ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if email in data:
+                del data[email]
+                with open(FLAGGED_ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error unflagging account: {e}")
+
 
 
 # ── Global Thread-Safe Live Status Tracker & Active Driver Registry ───────
@@ -187,6 +241,17 @@ class AccountLifecycleWorker(threading.Thread):
     def run(self):
         global _global_last_post_time
         email = self.email
+
+
+        # ── 0. Check if Account is Already Flagged ──
+        flagged_map = load_flagged_accounts()
+        if email in flagged_map:
+            info = flagged_map[email]
+            reason = info.get("reason", "Account flagged")
+            log_live_message(f"⚠️ [{email}] Account is FLAGGED ({reason}). Skipping all tasks for this account.")
+            update_account_state(email, state="FLAGGED", details=f"Skipped: {reason}")
+            return
+
         log_live_message(f"🚀 Worker started for account: {email} ({len(self.assigned_entries)} listings assigned)")
         update_account_state(email, state="QUEUED", details=f"Queued ({len(self.assigned_entries)} listings)")
 
@@ -283,6 +348,17 @@ class AccountLifecycleWorker(threading.Thread):
                 if not marker.exists():
                     raise Exception(f"Account {email} is not logged in yet. Please log in first via Manage Accounts.")
 
+                # ── 3. Pre-Flight Health & Previous Listing Review Check (On 2nd+ listing or re-opened ID) ──
+                if idx > 0:
+                    update_account_state(email, state="CHECKING", details="Checking previous listing & account health...")
+                    is_healthy, flag_reason = check_account_health_and_previous_listing(driver)
+                    if not is_healthy:
+                        flag_account(email, flag_reason, title)
+                        log_live_message(f"🚨 [{email}] Flagged during health check: {flag_reason}! Closing profile and skipping.")
+                        update_account_state(email, state="FLAGGED", details=f"Flagged: {flag_reason}")
+                        self.failed_listings.append(f"{title} (🚨 FLAGGED: {flag_reason})")
+                        break
+
                 update_account_state(email, state="NAVIGATING", details="Navigating to Facebook Marketplace...")
                 check = move_to_path(driver)
                 if not check:
@@ -299,7 +375,6 @@ class AccountLifecycleWorker(threading.Thread):
                     driver.refresh()
 
                 time.sleep(5)
-
 
                 (img_entries, title_entry, description_entry, category_entry, location_entry,
                  tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
@@ -337,6 +412,10 @@ class AccountLifecycleWorker(threading.Thread):
                     set_file_status(post_title, email)
                     with _status_lock:
                         LIVE_BOT_STATE["completed_listings"] += 1
+                    update_account_state(email, state="SIMULATING", details="Post-listing human simulation (10-30s)...")
+                    
+                    # ── 4. Post-Listing Randomized Human Simulation (10-30s) ──
+                    simulate_random_human_activity(driver, self.stop_event)
                     update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'")
                 else:
                     log_live_message(f"❌ [{email}] Failed to publish '{post_title}'.")
@@ -347,7 +426,6 @@ class AccountLifecycleWorker(threading.Thread):
                 log_live_message(f"🚨 [{email}] Error during execution: {e}")
                 self.failed_listings.append(f"{title} (Error: {str(e)[:50]})")
                 update_account_state(email, state="ERROR", details=f"Error: {str(e)[:60]}")
-
 
             finally:
                 if driver is not None:
@@ -372,7 +450,6 @@ class AccountLifecycleWorker(threading.Thread):
                     except ValueError:
                         pass
 
-
             # If there are more listings scheduled for this account and no flags, enter cooldown
             if idx < len(self.assigned_entries) - 1 and not keep_browser_open:
                 log_live_message(f"⏳ [{email}] Entering Cooldown ({self.time_sleep_cooldown}s) before next listing...")
@@ -386,6 +463,7 @@ class AccountLifecycleWorker(threading.Thread):
 
 
 # ── Multi-Account Orchestrator ──────────────────────────────────────────────
+
 def run_orchestrator(
     entries: list,
     time_sleep: int = 1800,

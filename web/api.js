@@ -348,6 +348,14 @@ async function scanFolderAPI(folderPath) {
   return await apiPost('/scan-folder', { folder_path: folderPath });
 }
 
+async function fetchFlaggedAccountsAPI() {
+  return await apiGet('/flagged-accounts');
+}
+
+async function unflagAccountAPI(email) {
+  return await apiPost('/unflag-account', { email });
+}
+
 function downloadCSVTemplate() {
   window.open(`${BASE_URL}/download-template`, '_blank');
 }
