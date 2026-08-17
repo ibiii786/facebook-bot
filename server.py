@@ -306,7 +306,13 @@ def end_tasks():
     global current_background_tasks, stop_event
     stop_event.set()
     current_background_tasks = []
-    return {"status": "success", "message": "Stop signal sent."}
+    try:
+        from Open_fb import stop_all_active_drivers
+        stop_all_active_drivers()
+    except Exception as e:
+        print(f"Error terminating drivers on stop: {e}")
+    return {"status": "success", "message": "Stop signal sent and active browsers closed."}
+
 
 
 

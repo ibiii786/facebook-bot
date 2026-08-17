@@ -79,11 +79,12 @@ async function getBotLiveStatus() {
 async function endTasks() {
   try {
     const res = await apiPost('/end-tasks', {});
-    const stopBtn = document.getElementById('btn-stop');
-    if (stopBtn) {
-      stopBtn.disabled = true;
-      stopBtn.textContent = '⏹ Stopped';
-    }
+    document.querySelectorAll('#btn-stop, .btn-danger').forEach(btn => {
+      if (btn.textContent.includes('Stop')) {
+        btn.disabled = true;
+        btn.textContent = '⏹ Stopped';
+      }
+    });
     if (typeof onBotStopped === 'function') {
       onBotStopped();
     }
@@ -127,8 +128,7 @@ async function runBot() {
       max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
       review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
     };
-    const result = await apiPost('/run-bot', payload);
-    onBotComplete(result.failed_videos || {});
+    await apiPost('/run-bot', payload);
   } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
@@ -157,8 +157,7 @@ async function runDistributeBot() {
       max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
       review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
     };
-    const result = await apiPost('/distribute-bot', payload);
-    onBotComplete(result.failed_videos || {});
+    await apiPost('/distribute-bot', payload);
   } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
@@ -167,6 +166,7 @@ async function runDistributeBot() {
     }
   }
 }
+
 
 
 async function renewListings() {

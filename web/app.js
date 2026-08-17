@@ -634,19 +634,23 @@ async function getFailedFields() {
 
 // ── Live Multitasking Status Polling & Rendering ────────────────────────────
 let liveStatusPollTimer = null;
+let isBotExecutionActive = false;
 
 function onBotStarted() {
+  isBotExecutionActive = true;
   const banner = document.getElementById('live-run-banner');
   if (banner) banner.classList.remove('hidden');
-  const stopBtn = document.getElementById('btn-stop');
-  if (stopBtn) {
-    stopBtn.disabled = false;
-    stopBtn.textContent = 'Stop All Tasks';
-  }
+  document.querySelectorAll('#btn-stop, .btn-danger').forEach(btn => {
+    if (btn.textContent.includes('Stop')) {
+      btn.disabled = false;
+      btn.textContent = 'Stop All Tasks';
+    }
+  });
   startLiveStatusPolling();
 }
 
 function onBotStopped() {
+  isBotExecutionActive = false;
   setStatus('Stopping Bot...', 'warning');
   stopLiveStatusPolling();
   setTimeout(() => {
@@ -676,7 +680,15 @@ async function pollAndRenderBotStatus() {
   const state = await getBotLiveStatus();
   if (!state) return;
 
-  // 1. Update Monitor Stats Bar
+  // 1. Detect if bot execution just finished
+  if (state.status === 'running') {
+    isBotExecutionActive = true;
+  } else if (state.status === 'idle' && isBotExecutionActive) {
+    isBotExecutionActive = false;
+    onBotComplete(state.failed || {});
+  }
+
+  // 2. Update Monitor Stats Bar
   const statStatus = document.getElementById('stat-bot-status');
   if (statStatus) {
     statStatus.textContent = state.status.toUpperCase();
@@ -693,7 +705,7 @@ async function pollAndRenderBotStatus() {
     statCompleted.textContent = `${state.completed_listings} / ${state.total_listings}`;
   }
 
-  // 2. Update Live Run Banner on Products page
+  // 3. Update Live Run Banner on Products page
   const banner = document.getElementById('live-run-banner');
   const bannerText = document.getElementById('banner-text');
   if (state.status === 'running') {
@@ -705,7 +717,7 @@ async function pollAndRenderBotStatus() {
     if (banner) banner.classList.add('hidden');
   }
 
-  // 3. Render Account Cards in Live Monitor Tab
+  // 4. Render Account Cards in Live Monitor Tab
   const grid = document.getElementById('monitor-accounts-grid');
   if (grid) {
     const accEntries = Object.entries(state.accounts || {});
@@ -760,7 +772,7 @@ async function pollAndRenderBotStatus() {
     }
   }
 
-  // 4. Render Live Logs
+  // 5. Render Live Logs
   const logConsole = document.getElementById('monitor-logs-console');
   if (logConsole && Array.isArray(state.logs) && state.logs.length > 0) {
     logConsole.innerHTML = state.logs.map(l => `<div class="log-line">${l}</div>`).join('');
@@ -782,6 +794,7 @@ function onBotComplete(failedVideos) {
 }
 
 function showFailedModal(failedVideos) {
+
   const container = document.getElementById('failed-list-content');
   container.innerHTML = '';
   for (const [key, items] of Object.entries(failedVideos)) {

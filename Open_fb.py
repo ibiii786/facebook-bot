@@ -32,7 +32,7 @@ CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
 
 
-# ── Global Thread-Safe Live Status Tracker ─────────────────────────────────
+# ── Global Thread-Safe Live Status Tracker & Active Driver Registry ───────
 _status_lock = threading.Lock()
 LIVE_BOT_STATE: Dict[str, Any] = {
     "status": "idle",  # idle | running | stopping
@@ -41,8 +41,24 @@ LIVE_BOT_STATE: Dict[str, Any] = {
     "completed_listings": 0,
     "total_listings": 0,
     "accounts": {},
-    "logs": []
+    "logs": [],
+    "failed": {}
 }
+
+active_drivers_lock = threading.Lock()
+ACTIVE_DRIVERS: List[webdriver.Chrome] = []
+
+
+def stop_all_active_drivers():
+    """Immediately terminates all open Chrome browser instances launched by the orchestrator."""
+    with active_drivers_lock:
+        log_live_message(f"⏹ Force stopping {len(ACTIVE_DRIVERS)} active Chrome instances...")
+        for driver in list(ACTIVE_DRIVERS):
+            try:
+                driver.quit()
+            except Exception:
+                pass
+        ACTIVE_DRIVERS.clear()
 
 
 def get_live_bot_state() -> Dict[str, Any]:
@@ -56,6 +72,7 @@ def json_safe_copy(data: Any) -> Any:
     if isinstance(data, list):
         return [json_safe_copy(v) for v in data]
     return data
+
 
 
 def log_live_message(msg: str):
@@ -205,6 +222,15 @@ class AccountLifecycleWorker(threading.Thread):
                 profile_dir = base_profile_dir / safe_email
                 profile_dir.mkdir(parents=True, exist_ok=True)
 
+                # Clean up any leftover browser singleton locks
+                for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]:
+                    lock_file = profile_dir / lock_name
+                    if lock_file.exists():
+                        try:
+                            lock_file.unlink()
+                        except Exception:
+                            pass
+
                 options = webdriver.ChromeOptions()
                 options.add_argument("--start-maximized")
                 options.add_argument(f"--user-data-dir={str(profile_dir.resolve())}")
@@ -221,6 +247,9 @@ class AccountLifecycleWorker(threading.Thread):
 
                 service = Service(ChromeDriverManager().install())
                 driver = webdriver.Chrome(service=service, options=options)
+                with active_drivers_lock:
+                    ACTIVE_DRIVERS.append(driver)
+
 
                 marker = profile_dir / "First_Login_Done.txt"
                 if not marker.exists():
@@ -331,11 +360,16 @@ class AccountLifecycleWorker(threading.Thread):
                 update_account_state(email, state="ERROR", details=f"Error: {str(e)[:60]}")
 
             finally:
-                if driver is not None and not keep_browser_open:
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
+                if driver is not None:
+                    with active_drivers_lock:
+                        if driver in ACTIVE_DRIVERS:
+                            ACTIVE_DRIVERS.remove(driver)
+
+                    if not keep_browser_open:
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
 
                 with _status_lock:
                     LIVE_BOT_STATE["active_browsers"] = max(0, LIVE_BOT_STATE["active_browsers"] - 1)
@@ -347,6 +381,7 @@ class AccountLifecycleWorker(threading.Thread):
                         self.semaphore.release()
                     except ValueError:
                         pass
+
 
             # If there are more listings scheduled for this account and no flags, enter cooldown
             if idx < len(self.assigned_entries) - 1 and not keep_browser_open:
@@ -492,16 +527,18 @@ def run_orchestrator(
                 break
             worker.join(timeout=1.0)
 
-    with _status_lock:
-        LIVE_BOT_STATE["status"] = "idle"
-
     not_gen = {}
     for worker in workers:
         if worker.failed_listings:
             not_gen[worker.email] = worker.failed_listings
 
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "idle"
+        LIVE_BOT_STATE["failed"] = not_gen
+
     log_live_message("🏁 Orchestrator finished all account workflows.")
     return not_gen
+
 
 
 # ── Backwards Compatible Entry Points ───────────────────────────────────────
