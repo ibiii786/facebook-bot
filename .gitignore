@@ -11,3 +11,5 @@ __pycache__/
 *.log
 .DS_Store
 session_state.json
+temp_images/
+uploads/

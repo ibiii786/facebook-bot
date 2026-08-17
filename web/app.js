@@ -183,26 +183,47 @@ function removeImageRow(entryId, imgIndex) {
   if (entry) entry.imageCount = Math.max(1, entry.imageCount - 1);
 }
 
-function handleImageDrop(e, entryId, imgIndex) {
+async function handleImageDrop(e, entryId, imgIndex) {
   e.preventDefault();
   const zone = e.currentTarget;
   zone.classList.remove('drag-over');
-  const files = e.dataTransfer.files || [];
-  if (files.length > 0) {
-    const file = files[0];
-    const fullPath = file.path || file.name;
-    const input = document.getElementById(`img-input-${entryId}-${imgIndex}`);
-    if (input) {
-      input.value = fullPath;
-      updateImagePreview(entryId, imgIndex, fullPath);
+  const files = Array.from(e.dataTransfer.files || []);
+  if (files.length === 0) return;
+
+  zone.textContent = 'Uploading...';
+  try {
+    const paths = [];
+    for (const file of files) {
+      const p = await uploadDroppedFile(file);
+      if (p) paths.push(p);
     }
+
+    if (paths.length > 0) {
+      const input = document.getElementById(`img-input-${entryId}-${imgIndex}`);
+      if (input) { input.value = paths[0]; updateImagePreview(entryId, imgIndex, paths[0]); }
+
+      const entry = entries.find(en => en.id === entryId);
+      for (let i = 1; i < paths.length && entry && entry.imageCount < MAX_IMAGES; i++) {
+        addImageRow(entryId);
+        const newIdx = entry.imageCount - 1;
+        const inp = document.getElementById(`img-input-${entryId}-${newIdx}`);
+        if (inp) { inp.value = paths[i]; updateImagePreview(entryId, newIdx, paths[i]); }
+      }
+      triggerAutoSave();
+    }
+  } catch (err) {
+    console.error('Drop upload error:', err);
+  } finally {
+    zone.textContent = '📂 Drop';
   }
 }
 
-// Native File Selector Trigger for Product Cards
+
+// ── File Browser Triggers ─────────────────────────────────────────────────────
+
 async function triggerImageBrowse(entryId, imgIndex, btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
-  if (btnEl) btnEl.textContent = '⏳...';
+  if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
   try {
     const paths = await browseNativeFiles();
     if (!paths || paths.length === 0) return;
@@ -217,67 +238,57 @@ async function triggerImageBrowse(entryId, imgIndex, btnEl) {
     for (let i = 1; i < paths.length && entry && entry.imageCount < MAX_IMAGES; i++) {
       addImageRow(entryId);
       const newIdx = entry.imageCount - 1;
-      const input = document.getElementById(`img-input-${entryId}-${newIdx}`);
-      if (input) {
-        input.value = paths[i];
-        updateImagePreview(entryId, newIdx, paths[i]);
-      }
+      const inp = document.getElementById(`img-input-${entryId}-${newIdx}`);
+      if (inp) { inp.value = paths[i]; updateImagePreview(entryId, newIdx, paths[i]); }
     }
     triggerAutoSave();
   } catch (err) {
-    console.error('File browse error:', err);
+    console.error('Image browse error:', err);
   } finally {
-    if (btnEl) btnEl.textContent = origText;
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
   }
 }
 
 async function triggerVideoBrowse(entryId, btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
-  if (btnEl) btnEl.textContent = '⏳...';
+  if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
   try {
     const path = await browseNativeVideo();
     if (path) {
       const input = document.getElementById(`video-input-${entryId}`);
-      if (input) {
-        input.value = path;
-        triggerAutoSave();
-      }
+      if (input) { input.value = path; triggerAutoSave(); }
     }
   } catch (err) {
     console.error('Video browse error:', err);
   } finally {
-    if (btnEl) btnEl.textContent = origText;
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
   }
 }
 
-// Native File Selector Trigger for Quick Field Modal
 async function triggerQuickImageBrowse(btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
-  if (btnEl) btnEl.textContent = '⏳...';
+  if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
   try {
     const paths = await browseNativeFiles();
     if (!paths || paths.length === 0) return;
-
     const txtArea = document.getElementById('quick-images');
     if (txtArea) {
       const cur = txtArea.value.trim();
-      const newStr = paths.join(', ');
-      txtArea.value = cur ? cur + '\n' + newStr : newStr;
+      txtArea.value = cur ? cur + '\n' + paths.join('\n') : paths.join('\n');
     }
   } catch (err) {
     console.error('Quick image browse error:', err);
   } finally {
-    if (btnEl) btnEl.textContent = origText;
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
   }
 }
 
 async function triggerQuickVideoBrowse(btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
-  if (btnEl) btnEl.textContent = '⏳...';
+  if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
   try {
     const path = await browseNativeVideo();
     if (!path) return;
-
     const txtArea = document.getElementById('quick-videos');
     if (txtArea) {
       const cur = txtArea.value.trim();
@@ -286,9 +297,24 @@ async function triggerQuickVideoBrowse(btnEl) {
   } catch (err) {
     console.error('Quick video browse error:', err);
   } finally {
-    if (btnEl) btnEl.textContent = origText;
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
   }
 }
+
+async function browseFolderGenPath(btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
+  try {
+    const folderPath = await browseNativeFolder();
+    if (folderPath) document.getElementById('folder-gen-path').value = folderPath;
+  } catch (e) {
+    console.error('Folder browse error:', e);
+  } finally {
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
+  }
+}
+
+
 
 // ── Default Helpers ──────────────────────────────────────────────────────────
 function getDefaults() {

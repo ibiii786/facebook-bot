@@ -4,6 +4,8 @@ import json
 import subprocess
 import ast
 import shutil
+import tkinter as tk
+from tkinter import filedialog
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
@@ -556,20 +558,40 @@ def api_load_fields(name: str = Query(...)):
 
 # ── Native OS File Dialog Helper & Browsing Endpoints ──────────────────────
 def open_native_file_dialog(dialog_type: str = "files") -> List[str]:
-    picker_script = os.path.join(os.path.dirname(__file__), "file_picker.py")
+    """Open native OS file dialog. Works when server is started interactively."""
     try:
-        proc = subprocess.run(
-            [sys.executable, picker_script, dialog_type],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        for line in proc.stdout.splitlines():
-            if line.startswith("PICKER_OUTPUT:"):
-                return json.loads(line[len("PICKER_OUTPUT:"):])
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes("-topmost", 1)
+        root.lift()
+        root.focus_force()
+        root.update()
+        if dialog_type == "files":
+            files = filedialog.askopenfilenames(
+                parent=root,
+                title="Select Image Files",
+                filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.gif *.bmp"), ("All Files", "*.*")]
+            )
+            root.destroy()
+            return list(files) if files else []
+        elif dialog_type == "video":
+            file_path = filedialog.askopenfilename(
+                parent=root,
+                title="Select Video File",
+                filetypes=[("Video Files", "*.mp4 *.mov *.avi *.mkv *.webm"), ("All Files", "*.*")]
+            )
+            root.destroy()
+            return [file_path] if file_path else []
+        elif dialog_type == "folder":
+            folder = filedialog.askdirectory(parent=root, title="Select Folder")
+            root.destroy()
+            return [folder] if folder else []
+        else:
+            root.destroy()
+            return []
     except Exception as e:
-        print(f"Subprocess file dialog error: {e}")
-    return []
+        print(f"File dialog error: {e}")
+        return []
 
 
 @app.get("/browse-files")
