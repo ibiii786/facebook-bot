@@ -5,22 +5,38 @@ echo   Launching Facebook Marketplace Bot (Localhost)
 echo ========================================================
 echo.
 
-:: Activate virtual environment if present
-if exist "venv\Scripts\activate.bat" (
+:: Detect Python executable
+set "PY_CMD=python"
+if exist "venv\Scripts\python.exe" (
+    set "PY_CMD=venv\Scripts\python.exe"
     call venv\Scripts\activate.bat
+)
+
+:: Verify dependencies before starting
+%PY_CMD% -c "import fastapi, uvicorn, selenium, pandas" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Required libraries are missing or corrupt in this environment!
+    echo.
+    echo Please run 'setup.bat' to install all required dependencies.
+    echo.
+    pause
+    exit /b 1
 )
 
 :: Automatically open default browser to localhost after 2 seconds
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8000"
 
 :: Launch server
-python server.py
+%PY_CMD% server.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Server encountered an issue and stopped.
-    echo If this is a new PC, please make sure you ran 'setup.bat' first.
+    echo ========================================================
+    echo [ERROR] Server stopped unexpectedly.
+    echo See the error message above for details.
+    echo ========================================================
     echo.
     pause
 )
+
 
