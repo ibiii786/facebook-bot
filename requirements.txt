@@ -1,9 +1,10 @@
-selenium
-tkinterdnd2
-pandas
-webdriver_manager
-pyperclip
-Pillow
-pyinstaller
 fastapi
 uvicorn
+selenium
+webdriver_manager
+pandas
+openpyxl
+python-multipart
+Pillow
+pyperclip
+tkinterdnd2
