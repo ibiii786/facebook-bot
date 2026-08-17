@@ -19,6 +19,7 @@
       
       <nav class="nav-tabs">
         <div class="nav-tab active" data-tab="tab-products" onclick="switchTab('tab-products')">Products</div>
+        <div class="nav-tab" data-tab="tab-monitor" onclick="switchTab('tab-monitor')">Live Monitor</div>
         <div class="nav-tab" data-tab="tab-settings" onclick="switchTab('tab-settings')">Automation Settings</div>
         <div class="nav-tab" data-tab="tab-bulk" onclick="switchTab('tab-bulk')">Bulk Suite</div>
         <div class="nav-tab" data-tab="tab-accounts" onclick="switchTab('tab-accounts')">Accounts & Proxies</div>
@@ -52,8 +53,18 @@
             <button id="btn-save-session" class="btn btn-secondary" onclick="saveFullSession(true)">Save Session</button>
             <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">Stop All Tasks</button>
             <button id="btn-add" class="btn btn-secondary" onclick="addField()">Add Product</button>
+            <button id="btn-distribute" class="btn btn-secondary" onclick="runDistributeBot()">Distribute Bot</button>
             <button id="btn-run" class="btn btn-primary" onclick="runBot()">Run Bot</button>
           </div>
+        </div>
+
+        <!-- Live Running Status Banner -->
+        <div id="live-run-banner" class="live-banner hidden">
+          <div class="banner-info">
+            <span class="pulse-dot"></span>
+            <span id="banner-text">Bot is running across multiple accounts...</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('tab-monitor')">View Live Monitor ↗</button>
         </div>
 
         <div id="entries-list" class="entries-list"></div>
@@ -66,12 +77,47 @@
         </div>
       </div>
 
+      <!-- Tab: Live Monitor -->
+      <div id="tab-monitor" class="tab-content">
+        <div class="content-header">
+          <h2>Live Multitasking Monitor</h2>
+          <div class="header-actions">
+            <button class="btn btn-danger" onclick="endTasks()">Stop All Tasks</button>
+          </div>
+        </div>
+
+        <div class="monitor-stats-bar">
+          <div class="monitor-stat-card">
+            <div class="stat-label">Bot Status</div>
+            <div id="stat-bot-status" class="stat-val">Idle</div>
+          </div>
+          <div class="monitor-stat-card">
+            <div class="stat-label">Active Browsers</div>
+            <div id="stat-active-browsers" class="stat-val">0 / 2</div>
+          </div>
+          <div class="monitor-stat-card">
+            <div class="stat-label">Listings Completed</div>
+            <div id="stat-completed-listings" class="stat-val">0 / 0</div>
+          </div>
+        </div>
+
+        <h3 style="margin: 20px 0 12px; font-size: 15px; font-weight: 600;">Account Worker Streams</h3>
+        <div id="monitor-accounts-grid" class="monitor-accounts-grid">
+          <div class="monitor-empty-state">No accounts active right now. Start the bot to monitor live multitasking workers.</div>
+        </div>
+
+        <h3 style="margin: 24px 0 12px; font-size: 15px; font-weight: 600;">Live Execution Logs</h3>
+        <div id="monitor-logs-console" class="monitor-logs-console">
+          <div class="log-line">[System] Multi-Account State Engine initialized and ready.</div>
+        </div>
+      </div>
+
       <!-- Tab 2: Settings -->
       <div id="tab-settings" class="tab-content">
         <div class="settings-grid">
           
           <div class="panel-card">
-            <h2>Marketplace Settings</h2>
+            <h2>Marketplace & Concurrency</h2>
             <div class="form-group">
               <label>Marketplace Location</label>
               <select id="marketplace" class="input">
@@ -80,7 +126,11 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Delay Between Listings</label>
+              <label>Max Concurrent Chrome Browsers</label>
+              <input id="max-concurrent-browsers" class="input" type="number" min="1" max="5" value="2" title="Maximum simultaneous browser windows open at once" />
+            </div>
+            <div class="form-group">
+              <label>Delay Between Listings (Cooldown)</label>
               <div class="inline-inputs">
                 <input id="wait-value" class="input" type="number" min="0" max="60" value="2" />
                 <select id="wait-unit" class="input">
@@ -91,7 +141,7 @@
               </div>
             </div>
             <div class="form-group">
-              <label>Delay Between Accounts</label>
+              <label>Delay Between Account Starts</label>
               <div class="inline-inputs">
                 <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
                 <select id="wait-unit-account" class="input">
@@ -102,12 +152,17 @@
               </div>
             </div>
             <div class="form-group" style="margin-top: 8px;">
-              <label>Anti-Ban Features</label>
+              <label>Anti-Ban & Stealth Review Features</label>
               <div class="checkbox-row">
-                <label class="checkbox-item"><input type="checkbox" id="wait-for-review" /> Wait for Review Phase (Watch Reels)</label>
+                <label class="checkbox-item"><input type="checkbox" id="wait-for-review" checked /> Dynamic Review Watch (Watch Reels & Check Background)</label>
               </div>
             </div>
+            <div class="form-group" style="margin-top: 6px;">
+              <label>Max Review Timeout (Minutes)</label>
+              <input id="review-timeout-mins" class="input" type="number" min="5" max="60" value="30" />
+            </div>
           </div>
+
 
           <div class="panel-card">
             <h2>Listing Defaults</h2>

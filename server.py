@@ -6,6 +6,7 @@ import ast
 import shutil
 import tkinter as tk
 from tkinter import filedialog
+import threading
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
@@ -13,8 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from save_state_screen import get_failed_fields,run_bot
-from Open_fb import main as run_fb_bot, distribute_among_accounts
+from save_state_screen import get_failed_fields, run_bot
+from Open_fb import (
+    main as run_fb_bot,
+    distribute_among_accounts,
+    get_live_bot_state
+)
 from renew import main as renew_main
 from save_state_screen import main as save_state_main
 from Assets.Files.SaveFiles.SaveFile import add_to_prev
@@ -123,6 +128,8 @@ class BotRunRequest(BaseModel):
     wait_time_accounts: int = 2
     marketplace: str = "UK"
     wait_for_review: bool = False
+    max_concurrent_browsers: int = 2
+    review_timeout_mins: int = 30
 
 
 class CountRequest(BaseModel):
@@ -162,19 +169,52 @@ def api_load_session():
             return {"status": "success", "state": None}
     return {"status": "success", "state": None}
 
-import threading
+
 # ── Task Execution Handlers ─────────────────────────────────────────────────
-def run_bot_task(entries_data: List[dict], wait_time: int, wait_time_accounts: int, marketplace: str, wait_for_review: bool, stop_event: threading.Event):
+def run_bot_task(
+    entries_data: List[dict],
+    wait_time: int,
+    wait_time_accounts: int,
+    marketplace: str,
+    wait_for_review: bool,
+    max_concurrent_browsers: int,
+    review_timeout_mins: int,
+    stop_event: threading.Event
+):
     adapted_entries = [EntryAdapter(item) for item in entries_data]
-    run_fb_bot(adapted_entries, time_sleep=wait_time,wait_time_accounts=wait_time_accounts, marketplace_location=marketplace, wait_for_review=wait_for_review, stop_event=stop_event)
+    run_fb_bot(
+        adapted_entries,
+        time_sleep=wait_time,
+        wait_time_accounts=wait_time_accounts,
+        marketplace_location=marketplace,
+        wait_for_review=wait_for_review,
+        stop_event=stop_event,
+        max_concurrent_browsers=max_concurrent_browsers
+    )
 
 
-def run_distribute_task(entries_data: List[dict], wait_time: int, marketplace: str, wait_for_review: bool):
+def run_distribute_task(
+    entries_data: List[dict],
+    wait_time: int,
+    wait_time_accounts: int,
+    marketplace: str,
+    wait_for_review: bool,
+    max_concurrent_browsers: int,
+    review_timeout_mins: int,
+    stop_event: threading.Event
+):
     adapted_entries = [EntryAdapter(item) for item in entries_data]
-    distribute_among_accounts(adapted_entries, time_sleep=wait_time, marketplace_location=marketplace, wait_for_review=wait_for_review)
+    distribute_among_accounts(
+        adapted_entries,
+        time_sleep=wait_time,
+        wait_time_accounts=wait_time_accounts,
+        marketplace_location=marketplace,
+        wait_for_review=wait_for_review,
+        stop_event=stop_event,
+        max_concurrent_browsers=max_concurrent_browsers
+    )
 
 
-# ── Endpoints ───────────────────────────────────────────────────────────────
 # ── Endpoints ───────────────────────────────────────────────────────────────
 import math
 
@@ -196,10 +236,13 @@ def get_failed_fields_endpoint():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-import threading
-
 current_background_tasks: list[threading.Thread] = []
 stop_event = threading.Event()
+
+@app.get("/bot-status")
+def api_bot_status():
+    """Returns real-time status of all active account workers and queue metrics."""
+    return get_live_bot_state()
 
 @app.post("/run-bot")
 def api_run_bot(req: BotRunRequest):
@@ -209,12 +252,45 @@ def api_run_bot(req: BotRunRequest):
 
     t = threading.Thread(
         target=run_bot_task,
-        args=(entries_data, req.wait_time, req.wait_time_accounts, req.marketplace, req.wait_for_review, stop_event),
+        args=(
+            entries_data,
+            req.wait_time,
+            req.wait_time_accounts,
+            req.marketplace,
+            req.wait_for_review,
+            req.max_concurrent_browsers,
+            req.review_timeout_mins,
+            stop_event
+        ),
         daemon=True,
     )
     current_background_tasks.append(t)
     t.start()
     return {"status": "started", "message": "Bot execution started in background."}
+
+@app.post("/distribute-bot")
+def api_distribute_bot(req: BotRunRequest):
+    entries_data = [item.dict() for item in req.listings]
+    global current_background_tasks, stop_event
+    stop_event.clear()
+
+    t = threading.Thread(
+        target=run_distribute_task,
+        args=(
+            entries_data,
+            req.wait_time,
+            req.wait_time_accounts,
+            req.marketplace,
+            req.wait_for_review,
+            req.max_concurrent_browsers,
+            req.review_timeout_mins,
+            stop_event
+        ),
+        daemon=True,
+    )
+    current_background_tasks.append(t)
+    t.start()
+    return {"status": "started", "message": "Distribution bot execution started in background."}
 
 @app.post("/end-tasks")
 def end_tasks():
@@ -223,12 +299,6 @@ def end_tasks():
     current_background_tasks = []
     return {"status": "success", "message": "Stop signal sent."}
 
-
-@app.post("/distribute-bot")
-def api_distribute_bot(req: BotRunRequest, background_tasks: BackgroundTasks):
-    entries_data = [item.dict() for item in req.listings]
-    background_tasks.add_task(run_distribute_task, entries_data, req.wait_time, req.marketplace, req.wait_for_review)
-    return {"status": "started", "message": "Distribution bot execution started in background."}
 
 
 @app.post("/renew")

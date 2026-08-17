@@ -66,47 +66,75 @@ async function uploadDroppedFile(file) {
   const data = await res.json();
   return data.path || '';
 }
-async function endTasks(){
-  try{
+// ── Live Bot Status Polling ────────────────────────────────────────────────
+async function getBotLiveStatus() {
+  try {
+    return await apiGet('/bot-status');
+  } catch (err) {
+    console.error('Failed to get live bot status:', err);
+    return null;
+  }
+}
+
+async function endTasks() {
+  try {
     const res = await apiPost('/end-tasks', {});
     const stopBtn = document.getElementById('btn-stop');
-    if(stopBtn){
+    if (stopBtn) {
       stopBtn.disabled = true;
       stopBtn.textContent = '⏹ Stopped';
     }
-  }catch(err){}
+    if (typeof onBotStopped === 'function') {
+      onBotStopped();
+    }
+  } catch (err) {
+    console.error('Error ending tasks:', err);
+  }
 }
+
 async function getFailedFieldsValue() {
-  try{
-    const failed=await apiPost('/getfailedfields', {});
-    return failed
-  }catch(err){
+  try {
+    const failed = await apiPost('/getfailedfields', {});
+    return failed;
+  } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
   }
-
 }
+
 async function runFailedBot() {
   const res = await apiPost('/run-failed', {});
   return res;
 }
+
 // ── Bot Operations ──────────────────────────────────────────────────────────
 async function runBot() {
   if (!validate()) return;
   disableControls();
   setStatus('Running Bot...', 'active');
+  
+  if (typeof onBotStarted === 'function') {
+    onBotStarted();
+  }
+
   try {
     const payload = {
-      listings:    entries.map(collectEntryData),
-      wait_time:   getWaitTimeSeconds(),
-      marketplace: getMarketplace(),
-      wait_for_review: document.getElementById('wait-for-review')?.checked || false,
+      listings:                entries.map(collectEntryData),
+      wait_time:               getWaitTimeSeconds(''),
+      wait_time_accounts:      getWaitTimeSeconds('-account'),
+      marketplace:             getMarketplace(),
+      wait_for_review:         document.getElementById('wait-for-review')?.checked || false,
+      max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
+      review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
     };
     const result = await apiPost('/run-bot', payload);
     onBotComplete(result.failed_videos || {});
   } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
+    if (typeof stopLiveStatusPolling === 'function') {
+      stopLiveStatusPolling();
+    }
   }
 }
 
@@ -114,20 +142,32 @@ async function runDistributeBot() {
   if (!validate()) return;
   disableControls();
   setStatus('Distributing Bot...', 'active');
+
+  if (typeof onBotStarted === 'function') {
+    onBotStarted();
+  }
+
   try {
     const payload = {
-      listings:    entries.map(collectEntryData),
-      wait_time:   getWaitTimeSeconds(),
-      marketplace: getMarketplace(),
-      wait_for_review: document.getElementById('wait-for-review')?.checked || false,
+      listings:                entries.map(collectEntryData),
+      wait_time:               getWaitTimeSeconds(''),
+      wait_time_accounts:      getWaitTimeSeconds('-account'),
+      marketplace:             getMarketplace(),
+      wait_for_review:         document.getElementById('wait-for-review')?.checked || false,
+      max_concurrent_browsers: parseInt(document.getElementById('max-concurrent-browsers')?.value) || 2,
+      review_timeout_mins:     parseInt(document.getElementById('review-timeout-mins')?.value) || 30
     };
     const result = await apiPost('/distribute-bot', payload);
     onBotComplete(result.failed_videos || {});
   } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
+    if (typeof stopLiveStatusPolling === 'function') {
+      stopLiveStatusPolling();
+    }
   }
 }
+
 
 async function renewListings() {
   disableControls();

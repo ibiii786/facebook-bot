@@ -627,12 +627,152 @@ async function getFailedFields() {
     const values=await getFailedFieldsValue()
     console.log('Failed fields values:', values);
     generateFailedUI(values.failed_fields);
-  }catch(err){
+  } catch (err) {
     alert(`Failed to get failed fields: ${err.message}`);
   }
 }
+
+// ── Live Multitasking Status Polling & Rendering ────────────────────────────
+let liveStatusPollTimer = null;
+
+function onBotStarted() {
+  const banner = document.getElementById('live-run-banner');
+  if (banner) banner.classList.remove('hidden');
+  const stopBtn = document.getElementById('btn-stop');
+  if (stopBtn) {
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop All Tasks';
+  }
+  startLiveStatusPolling();
+}
+
+function onBotStopped() {
+  setStatus('Stopping Bot...', 'warning');
+  stopLiveStatusPolling();
+  setTimeout(() => {
+    enableControls();
+    setStatus('Stopped', 'idle');
+    const banner = document.getElementById('live-run-banner');
+    if (banner) banner.classList.add('hidden');
+    pollAndRenderBotStatus();
+  }, 1000);
+}
+
+function startLiveStatusPolling() {
+  if (liveStatusPollTimer) clearInterval(liveStatusPollTimer);
+  liveStatusPollTimer = setInterval(pollAndRenderBotStatus, 1500);
+  pollAndRenderBotStatus();
+}
+
+function stopLiveStatusPolling() {
+  if (liveStatusPollTimer) {
+    clearInterval(liveStatusPollTimer);
+    liveStatusPollTimer = null;
+  }
+}
+
+async function pollAndRenderBotStatus() {
+  if (typeof getBotLiveStatus !== 'function') return;
+  const state = await getBotLiveStatus();
+  if (!state) return;
+
+  // 1. Update Monitor Stats Bar
+  const statStatus = document.getElementById('stat-bot-status');
+  if (statStatus) {
+    statStatus.textContent = state.status.toUpperCase();
+    statStatus.style.color = state.status === 'running' ? 'var(--accent-blue)' : 'var(--text-muted)';
+  }
+
+  const statBrowsers = document.getElementById('stat-active-browsers');
+  if (statBrowsers) {
+    statBrowsers.textContent = `${state.active_browsers} / ${state.max_concurrent}`;
+  }
+
+  const statCompleted = document.getElementById('stat-completed-listings');
+  if (statCompleted) {
+    statCompleted.textContent = `${state.completed_listings} / ${state.total_listings}`;
+  }
+
+  // 2. Update Live Run Banner on Products page
+  const banner = document.getElementById('live-run-banner');
+  const bannerText = document.getElementById('banner-text');
+  if (state.status === 'running') {
+    if (banner) banner.classList.remove('hidden');
+    if (bannerText) {
+      bannerText.textContent = `Bot Active: ${state.active_browsers} active browsers | ${state.completed_listings}/${state.total_listings} completed`;
+    }
+  } else {
+    if (banner) banner.classList.add('hidden');
+  }
+
+  // 3. Render Account Cards in Live Monitor Tab
+  const grid = document.getElementById('monitor-accounts-grid');
+  if (grid) {
+    const accEntries = Object.entries(state.accounts || {});
+    if (accEntries.length === 0) {
+      grid.innerHTML = '<div class="monitor-empty-state">No accounts active right now. Start the bot to monitor live multitasking workers.</div>';
+    } else {
+      grid.innerHTML = '';
+      accEntries.forEach(([email, acc]) => {
+        const card = document.createElement('div');
+        card.className = 'account-monitor-card ' + (acc.browser_open ? 'active-card' : '');
+
+        let chipClass = 'chip-queued';
+        let chipLabel = acc.state || 'QUEUED';
+
+        if (acc.state === 'POSTING' || acc.state === 'LAUNCHING' || acc.state === 'NAVIGATING') {
+          chipClass = 'chip-posting';
+          chipLabel = 'Posting';
+        } else if (acc.state === 'REELS_WARMUP') {
+          chipClass = 'chip-reels';
+          chipLabel = 'Watching Reels 🎬';
+        } else if (acc.state === 'CHECKING_REVIEW') {
+          chipClass = 'chip-review';
+          chipLabel = 'Checking Review 🔍';
+        } else if (acc.state === 'APPROVED' || acc.state === 'COMPLETED') {
+          chipClass = 'chip-approved';
+          chipLabel = 'Approved ✅';
+        } else if (acc.state === 'COOLDOWN') {
+          chipClass = 'chip-cooldown';
+          chipLabel = 'Cooldown ⏳';
+        } else if (acc.state === 'FLAGGED' || acc.state === 'TIMEOUT' || acc.state === 'ERROR') {
+          chipClass = 'chip-flagged';
+          chipLabel = acc.state === 'FLAGGED' ? 'Action Required ⚠️' : acc.state;
+        }
+
+        const browserBadge = acc.browser_open
+          ? '<span class="browser-open-tag">🌐 Browser Open</span>'
+          : '<span style="color:var(--text-muted);">💤 Browser Closed</span>';
+
+        card.innerHTML = `
+          <div class="account-card-header">
+            <span class="account-card-email">${email}</span>
+            <span class="badge-chip ${chipClass}">${chipLabel}</span>
+          </div>
+          <div class="account-card-details">${acc.details || 'Processing...'}</div>
+          <div class="account-card-footer">
+            ${browserBadge}
+            <span>${acc.elapsed_mins > 0 ? acc.elapsed_mins + 'm elapsed' : ''}</span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+  }
+
+  // 4. Render Live Logs
+  const logConsole = document.getElementById('monitor-logs-console');
+  if (logConsole && Array.isArray(state.logs) && state.logs.length > 0) {
+    logConsole.innerHTML = state.logs.map(l => `<div class="log-line">${l}</div>`).join('');
+    logConsole.scrollTop = logConsole.scrollHeight;
+  }
+}
+
 function onBotComplete(failedVideos) {
   enableControls();
+  stopLiveStatusPolling();
+  pollAndRenderBotStatus();
+
   const hasFailures = Object.values(failedVideos).some(arr => arr && arr.length > 0);
   if (!hasFailures) {
     setStatus('Finished Successfully', 'success');
@@ -664,6 +804,7 @@ function showFailedModal(failedVideos) {
 function saveAllFields() {
   openModal('modal-save');
 }
+
 
 // ── Account Manager UI ───────────────────────────────────────────────────────
 async function loadAccountsModal() {
@@ -784,10 +925,13 @@ function getFullSessionData() {
   return {
     settings: {
       marketplace: document.getElementById('marketplace')?.value || 'UK',
+      maxConcurrentBrowsers: document.getElementById('max-concurrent-browsers')?.value || '2',
       waitTime: document.getElementById('wait-value')?.value || '2',
       waitUnit: document.getElementById('wait-unit')?.value || 'seconds',
       waitTimeAccount: document.getElementById('wait-value-account')?.value || '2',
       waitUnitAccount: document.getElementById('wait-unit-account')?.value || 'seconds',
+      waitForReview: !!document.getElementById('wait-for-review')?.checked,
+      reviewTimeoutMins: document.getElementById('review-timeout-mins')?.value || '30',
     },
     defaults: {
       category: document.getElementById('default-category')?.value || 'Furniture',
@@ -862,11 +1006,17 @@ function restoreFullSession(data) {
     if (data.settings) {
       const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
       set('marketplace', data.settings.marketplace);
+      set('max-concurrent-browsers', data.settings.maxConcurrentBrowsers);
       set('wait-value', data.settings.waitTime);
       set('wait-unit', data.settings.waitUnit);
       set('wait-value-account', data.settings.waitTimeAccount);
       set('wait-unit-account', data.settings.waitUnitAccount);
+      set('review-timeout-mins', data.settings.reviewTimeoutMins);
+      if (document.getElementById('wait-for-review') && data.settings.waitForReview !== undefined) {
+        document.getElementById('wait-for-review').checked = !!data.settings.waitForReview;
+      }
     }
+
 
     // 2. Defaults
     if (data.defaults) {

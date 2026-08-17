@@ -1,90 +1,90 @@
 import os
+import sys
+import time
+import random
+import threading
 import pandas as pd
 from pathlib import Path
-from requests import options
+from typing import List, Dict, Any, Optional
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from Automation import go_to_items
+from Automation import (
+    go_to_items,
+    STATUS_APPROVED,
+    STATUS_FLAGGED,
+    STATUS_TIMEOUT,
+    STATUS_IN_REVIEW
+)
 from login_profile import email_to_safe
 from path import move_to_path
-import time
-from save_state import make_files,set_file_status
+from save_state import make_files, set_file_status
+
 CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
-def automation_worker(email, entries, list_location, marketplace_location="UK", proxy=None, wait_for_review=False):
-    n_generated = []
-    driver = None
-    keep_browser_open = False
-    try:      
-        safe_email = email_to_safe(email)
-        base_profile_dir = Path("profiles")
-        profile_dir = base_profile_dir / safe_email
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        # === Chrome setup ===
-        options = webdriver.ChromeOptions()
-        options.add_argument("--start-maximized")
-        options.add_argument(f"--user-data-dir={str(profile_dir.resolve())}")
-        options.add_argument("--profile-directory=Default")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        if proxy and str(proxy).strip() and str(proxy).strip() != "nan":
-            options.add_argument(f"--proxy-server={str(proxy).strip()}")
-        service = Service(ChromeDriverManager().install())
-        
-        driver = webdriver.Chrome(service=service, options=options)
-        
-        # === Login or reuse session ===
-        marker = profile_dir / "First_Login_Done.txt"
-        if not marker.exists():
-            raise Exception("Email not logged in yet.")
+
+# ── Global Thread-Safe Live Status Tracker ─────────────────────────────────
+_status_lock = threading.Lock()
+LIVE_BOT_STATE: Dict[str, Any] = {
+    "status": "idle",  # idle | running | stopping
+    "active_browsers": 0,
+    "max_concurrent": 2,
+    "completed_listings": 0,
+    "total_listings": 0,
+    "accounts": {},
+    "logs": []
+}
+
+
+def get_live_bot_state() -> Dict[str, Any]:
+    with _status_lock:
+        return json_safe_copy(LIVE_BOT_STATE)
+
+
+def json_safe_copy(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {k: json_safe_copy(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [json_safe_copy(v) for v in data]
+    return data
+
+
+def log_live_message(msg: str):
+    timestamp = time.strftime("%H:%M:%S")
+    formatted = f"[{timestamp}] {msg}"
+    print(formatted)
+    with _status_lock:
+        LIVE_BOT_STATE["logs"].append(formatted)
+        if len(LIVE_BOT_STATE["logs"]) > 100:
+            LIVE_BOT_STATE["logs"].pop(0)
+
+
+def update_account_state(email: str, state: str, details: str = "", stage: str = "", elapsed_mins: float = 0.0, cooldown_remaining: int = 0):
+    with _status_lock:
+        if email not in LIVE_BOT_STATE["accounts"]:
+            LIVE_BOT_STATE["accounts"][email] = {
+                "email": email,
+                "state": state,
+                "details": details,
+                "stage": stage,
+                "elapsed_mins": elapsed_mins,
+                "cooldown_remaining": cooldown_remaining,
+                "active_listing": "",
+                "browser_open": False
+            }
         else:
-            print(f"♻️ Reusing existing session for {email}")
-            check = move_to_path(driver)
-            if not check:
-                print(f"🚨 Could not navigate to marketplace for {email}")
-                driver.get("https://www.facebook.com/marketplace/create/item")
-            else:
-                driver.refresh()
-            for (img_entries, title_entry, description_entry, category_entry, location_entry, tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) in entries:
-                title = title_entry.get()
-                price = price_entry.get()
-                category = category_entry.get()
-                condition = condition_entry.get()
-                description = description_entry.get("1.0", "end").strip()
-                availability = availability_entry.get()
-                product_tags = [tag for tag in tags_entry.get().split(",")]
-                images = [img.get() for img in img_entries]
-                video = video_entry.get().strip()
-                time.sleep(7)
-                check = go_to_items(driver, title, price, category, condition, description, availability, product_tags, list_location, images, video, opt_vars[0].get(), opt_vars[1].get(), opt_vars[2].get(), marketplace_location, wait_for_review)
-                if check == "REVIEW_STUCK":
-                    n_generated.append(f"{title} (⚠️ Stuck in Review - Browser Open)")
-                    keep_browser_open = True
-                elif not check:
-                    n_generated.append((title))
-                else:
-                    set_file_status(title, email)
-    except Exception as e:
-        for (img_entries, title_entry, description_entry, category_entry, location_entry, tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) in entries:
-            title = title_entry.get()
-            n_generated.append((title))
-        print(f"🚨 Error in automation_worker for {email}: {e}")
+            acc = LIVE_BOT_STATE["accounts"][email]
+            acc["state"] = state
+            acc["details"] = details
+            if stage:
+                acc["stage"] = stage
+            if elapsed_mins is not None:
+                acc["elapsed_mins"] = elapsed_mins
+            if cooldown_remaining is not None:
+                acc["cooldown_remaining"] = cooldown_remaining
 
-    finally:
-        if driver is not None and not keep_browser_open:
-            try:
-                driver.quit()
-            except Exception:
-                pass
-    return n_generated
 
-def read_multiple_credentials(path=CSV_PATH):
+def read_multiple_credentials(path: str = CSV_PATH) -> List[tuple]:
     """Read email/phone/proxy records from a CSV file."""
     if not os.path.exists(path):
         return []
@@ -96,135 +96,419 @@ def read_multiple_credentials(path=CSV_PATH):
             email = getattr(row, 'email', '')
             phone = getattr(row, 'phone', '')
             proxy = getattr(row, 'proxy', '') if hasattr(row, 'proxy') else ''
-            creds.append((email, phone, proxy))
+            if email or phone:
+                creds.append((email, phone, proxy))
     except Exception as e:
         print(f"Error reading credentials CSV: {e}")
     return creds
 
-def distribute_among_accounts(entries, time_sleep=1800, marketplace_location="UK", wait_for_review=False):
-    not_gen_overall = {}
 
-    if not os.path.exists(CSV_PATH):
-        return []
-
-    accounts = read_multiple_credentials(CSV_PATH)
-    if not accounts:
-        return []
-
-    # Distribute entries as contiguous chunks (equal as possible)
-    n_accounts = len(accounts)
-    n_entries = len(entries)
-    entries_per_account = n_entries // n_accounts
-    remainder = n_entries % n_accounts
-
-    assignments = []
-    i = 0
-    for idx, account in enumerate(accounts):
-        take = entries_per_account + (1 if idx < remainder else 0)
-        assigned = entries[i:i+take] if take > 0 else []
-        assignments.append((account, assigned))
-        i += take
-
-    # Process in round-robin: first entry of each account, then second entry of each, ...
-    if os.path.exists(saved_states_file):
-        os.remove(saved_states_file)
-    pd.DataFrame(columns=["Name", "Status", "Title", "Price", "Category", "Condition", "Description", "Availability", "Product_Tags", "Images", "Video", "public_meetup", "door_dropoff", "door_meetup", "Location","Market_Location"]).to_csv(saved_states_file, index=False)
-    max_len = max((len(a[1]) for a in assignments), default=0)
-    for j in range(max_len):
-        for account, assigned in assignments:
-            if j < len(assigned):
-                entry = assigned[j]
-                make_files(entry, account[0], entry[4].get(), marketplace_location)
-    j = 0
-    for j in range(max_len):
-        for account, assigned in assignments:
-            if j < len(assigned):
-                entry = assigned[j]
-                try:
-                    if account[0] not in not_gen_overall:
-                        not_gen_overall[account[0]] = []
-                    proxy = account[2] if len(account) > 2 else None
-                    result = automation_worker(account[0], [entry], entry[4].get(), marketplace_location, proxy=proxy, wait_for_review=wait_for_review)
-                    if result:
-                        not_gen_overall[account[0]].extend(result)
-                except Exception as e:
-                    print(f"🚨 Error running automation for {account[0]} on round {j}: {e}")
-        # wait time_sleep seconds after completing one round across all accounts
-        time.sleep(time_sleep)
-
-    return not_gen_overall
-
-def _interruptible_sleep(seconds, stop_event):
-    """Sleep in small increments so a stop_event can interrupt long waits.
-    Returns False if a stop was requested, True if the full sleep completed."""
+def _interruptible_sleep(seconds: float, stop_event: Optional[threading.Event], email: Optional[str] = None, state_label: str = "Cooldown") -> bool:
+    """Sleep in 0.5s increments with real-time cooldown countdown updates."""
     if stop_event is None:
         time.sleep(seconds)
         return True
+
     end = time.time() + seconds
     while time.time() < end:
-        if stop_event is not None and stop_event.is_set():
+        if stop_event.is_set():
             return False
-        time.sleep(min(1, end - time.time()))
+        remaining = int(end - time.time())
+        if email and remaining % 5 == 0:
+            mins, secs = divmod(remaining, 60)
+            update_account_state(
+                email=email,
+                state="COOLDOWN",
+                details=f"{state_label}: {mins}m {secs}s remaining",
+                cooldown_remaining=remaining
+            )
+        time.sleep(0.5)
+
+    if email:
+        update_account_state(email=email, state="READY", details="Ready for next task", cooldown_remaining=0)
     return True
 
-def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None):
-    not_gen = {}
-    if os.path.exists(CSV_PATH):
-        accounts = read_multiple_credentials(CSV_PATH)
-    else:
-        accounts = []
-    entry_idx = 0
-    if os.path.exists(saved_states_file):
-        os.remove(saved_states_file)
-    pd.DataFrame(columns=["Name", "Status", "Title", "Price", "Category", "Condition", "Description", "Availability", "Product_Tags", "Images", "Video", "public_meetup", "door_dropoff", "door_meetup", "Location", "Market_Location"]).to_csv(saved_states_file, index=False)
 
-    for entry_idx in range(len(entries)):
-        location = entries[entry_idx][4].get()
-        location_list = location.split("|")
-        idx = 0
-        for account in accounts:
-            if idx >= len(location_list):
-                idx = 0
-            make_files(entries[entry_idx], str(account[0]), location_list[idx], marketplace_location)
-            idx += 1
+# ── Account Worker Lifecycle Engine ─────────────────────────────────────────
+class AccountLifecycleWorker(threading.Thread):
+    def __init__(
+        self,
+        account_tuple: tuple,
+        assigned_entries: list,
+        location_list: list,
+        marketplace_location: str = "UK",
+        time_sleep_cooldown: int = 1800,
+        wait_for_review: bool = False,
+        stop_event: Optional[threading.Event] = None,
+        semaphore: Optional[threading.Semaphore] = None,
+        max_review_timeout: int = 1800
+    ):
+        super().__init__(daemon=True)
+        self.email = account_tuple[0]
+        self.phone = account_tuple[1] if len(account_tuple) > 1 else ""
+        self.proxy = account_tuple[2] if len(account_tuple) > 2 else ""
+        self.assigned_entries = assigned_entries
+        self.location_list = location_list
+        self.marketplace_location = marketplace_location
+        self.time_sleep_cooldown = time_sleep_cooldown
+        self.wait_for_review = wait_for_review
+        self.stop_event = stop_event or threading.Event()
+        self.semaphore = semaphore
+        self.max_review_timeout = max_review_timeout
+        self.failed_listings = []
 
-    for entry_idx in range(len(entries)):
-        if stop_event is not None and stop_event.is_set():
-            print("🛑 Stop requested — halting before next entry.")
-            return not_gen
+    def run(self):
+        email = self.email
+        log_live_message(f"🚀 Worker started for account: {email} ({len(self.assigned_entries)} listings assigned)")
+        update_account_state(email, state="QUEUED", details=f"Queued ({len(self.assigned_entries)} listings)")
 
-        location = entries[entry_idx][4].get()
-        location_list = location.split("|")
-        idx = 0
-        for account in accounts:
-            if stop_event is not None and stop_event.is_set():
-                print("🛑 Stop requested — halting before next account.")
-                return not_gen
+        for idx, entry in enumerate(self.assigned_entries):
+            if self.stop_event.is_set():
+                log_live_message(f"🛑 Worker stopped for {email}")
+                update_account_state(email, state="STOPPED", details="Halted by user")
+                return
 
+            loc = self.location_list[idx % len(self.location_list)] if self.location_list else ""
+            title = entry[1].get() if len(entry) > 1 else f"Listing #{idx+1}"
+
+            # Acquire concurrency slot
+            update_account_state(email, state="WAITING_SLOT", details=f"Waiting for available browser slot to post '{title}'")
+            if self.semaphore:
+                acquired = False
+                while not acquired:
+                    if self.stop_event.is_set():
+                        return
+                    acquired = self.semaphore.acquire(timeout=1.0)
+
+            with _status_lock:
+                LIVE_BOT_STATE["active_browsers"] += 1
+                if email in LIVE_BOT_STATE["accounts"]:
+                    LIVE_BOT_STATE["accounts"][email]["browser_open"] = True
+
+            driver = None
+            keep_browser_open = False
             try:
-                if account[0] not in not_gen:
-                    not_gen[account[0]] = []
-                if idx >= len(location_list):
-                    idx = 0
-                proxy = account[2] if len(account) > 2 else None
-                result = automation_worker(account[0], [entries[entry_idx]], location_list[idx], marketplace_location, proxy=proxy, wait_for_review=wait_for_review)
-                if result:
-                    not_gen[account[0]].extend(result)
+                log_live_message(f"🌐 [{email}] Launching Chrome profile for listing '{title}'...")
+                update_account_state(email, state="LAUNCHING", details=f"Starting Chrome for '{title}'")
+
+                safe_email = email_to_safe(email, self.phone)
+                base_profile_dir = Path("profiles")
+                profile_dir = base_profile_dir / safe_email
+                profile_dir.mkdir(parents=True, exist_ok=True)
+
+                options = webdriver.ChromeOptions()
+                options.add_argument("--start-maximized")
+                options.add_argument(f"--user-data-dir={str(profile_dir.resolve())}")
+                options.add_argument("--profile-directory=Default")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option("useAutomationExtension", False)
+                if self.proxy and str(self.proxy).strip() and str(self.proxy).strip() != "nan":
+                    options.add_argument(f"--proxy-server={str(self.proxy).strip()}")
+
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=options)
+
+                marker = profile_dir / "First_Login_Done.txt"
+                if not marker.exists():
+                    raise Exception(f"Account {email} is not logged in yet. Please log in first via Manage Accounts.")
+
+                update_account_state(email, state="NAVIGATING", details="Navigating to Facebook Marketplace...")
+                check = move_to_path(driver)
+                if not check:
+                    driver.get("https://www.facebook.com/marketplace/create/item")
+                else:
+                    driver.refresh()
+
+                time.sleep(5)
+
+                (img_entries, title_entry, description_entry, category_entry, location_entry,
+                 tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
+
+                post_title = title_entry.get()
+                price = price_entry.get()
+                category = category_entry.get()
+                condition = condition_entry.get()
+                description = description_entry.get("1.0", "end").strip()
+                availability = availability_entry.get()
+                product_tags = [tag.strip() for tag in tags_entry.get().split(",") if tag.strip()]
+                images = [img.get() for img in img_entries if img.get()]
+                video = video_entry.get().strip()
+
+                def status_cb(data):
+                    stg = data.get("stage", "")
+                    el_m = data.get("elapsed_mins", 0.0)
+                    chk = data.get("check_count", 0)
+                    if stg == "REELS_WARMUP":
+                        update_account_state(
+                            email,
+                            state="REELS_WARMUP",
+                            details=f"Watching Reels ({el_m}m) | Check #{chk}",
+                            stage="REELS",
+                            elapsed_mins=el_m
+                        )
+                    elif stg == "CHECKING_REVIEW":
+                        update_account_state(
+                            email,
+                            state="CHECKING_REVIEW",
+                            details=f"Checking Marketplace Selling page ({el_m}m)...",
+                            stage="REVIEW_CHECK",
+                            elapsed_mins=el_m
+                        )
+
+                update_account_state(email, state="POSTING", details=f"Automating listing form for '{post_title}'")
+                log_live_message(f"📝 [{email}] Posting listing: '{post_title}' (${price})")
+
+                result = go_to_items(
+                    driver=driver,
+                    title=post_title,
+                    price=price,
+                    category=category,
+                    condition=condition,
+                    description=description,
+                    availability=availability,
+                    product_tags=product_tags,
+                    location=loc,
+                    images=images,
+                    video=video,
+                    public_meetup=opt_vars[0].get(),
+                    door_meetup=opt_vars[1].get(),
+                    door_dropoff=opt_vars[2].get(),
+                    marketplace_location=self.marketplace_location,
+                    wait_for_review=self.wait_for_review,
+                    stop_event=self.stop_event,
+                    status_callback=status_cb,
+                    max_review_timeout=self.max_review_timeout
+                )
+
+                if result == STATUS_APPROVED or result is True:
+                    log_live_message(f"✅ [{email}] Listing '{post_title}' APPROVED & ACTIVE!")
+                    set_file_status(post_title, email)
+                    with _status_lock:
+                        LIVE_BOT_STATE["completed_listings"] += 1
+                    update_account_state(email, state="APPROVED", details=f"Approved & Live: '{post_title}'")
+
+                elif result in [STATUS_FLAGGED, "REVIEW_STUCK"]:
+                    log_live_message(f"⚠️ [{email}] Checkpoint / Flag detected on '{post_title}'! Leaving browser window open.")
+                    keep_browser_open = True
+                    self.failed_listings.append(f"{post_title} (⚠️ Flagged - Browser Left Open)")
+                    update_account_state(email, state="FLAGGED", details="⚠️ Action Required: Browser left open for manual inspection", stage="FLAGGED")
+                    break  # Halt further posts on this flagged account
+
+                elif result == STATUS_TIMEOUT:
+                    log_live_message(f"⌛ [{email}] Review timeout for '{post_title}'. Leaving browser open for safety.")
+                    keep_browser_open = True
+                    self.failed_listings.append(f"{post_title} (⌛ Review Timeout)")
+                    update_account_state(email, state="TIMEOUT", details="⌛ Review Timeout: Browser open", stage="TIMEOUT")
+                    break
+
+                elif result == "STOPPED":
+                    log_live_message(f"🛑 [{email}] Stopped during listing execution.")
+                    update_account_state(email, state="STOPPED", details="Halted by user")
+                    return
+
+                else:
+                    log_live_message(f"❌ [{email}] Failed to post '{post_title}'.")
+                    self.failed_listings.append(post_title)
+                    update_account_state(email, state="FAILED", details=f"Failed posting '{post_title}'")
+
             except Exception as e:
-                print(f"🚨 Error running automation for {account[0]}: {e}")
+                log_live_message(f"🚨 [{email}] Error during execution: {e}")
+                self.failed_listings.append(f"{title} (Error: {str(e)[:50]})")
+                update_account_state(email, state="ERROR", details=f"Error: {str(e)[:60]}")
 
-            print("Waiting")
-            if not _interruptible_sleep(wait_time_accounts, stop_event):
-                print("🛑 Stop requested during wait — halting.")
-                return not_gen
-            print("Starting Again")
-            idx += 1
+            finally:
+                if driver is not None and not keep_browser_open:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
 
-        if not _interruptible_sleep(time_sleep, stop_event):
-            print("🛑 Stop requested during round wait — halting.")
-            return not_gen
+                with _status_lock:
+                    LIVE_BOT_STATE["active_browsers"] = max(0, LIVE_BOT_STATE["active_browsers"] - 1)
+                    if email in LIVE_BOT_STATE["accounts"]:
+                        LIVE_BOT_STATE["accounts"][email]["browser_open"] = keep_browser_open
 
+                if self.semaphore:
+                    try:
+                        self.semaphore.release()
+                    except ValueError:
+                        pass
+
+            # If there are more listings scheduled for this account and no flags, enter cooldown
+            if idx < len(self.assigned_entries) - 1 and not keep_browser_open:
+                log_live_message(f"⏳ [{email}] Entering Cooldown ({self.time_sleep_cooldown}s) before next listing...")
+                if not _interruptible_sleep(self.time_sleep_cooldown, self.stop_event, email=email, state_label="Account Cooldown"):
+                    log_live_message(f"🛑 [{email}] Cooldown stopped by user.")
+                    return
+
+        if not keep_browser_open:
+            update_account_state(email, state="COMPLETED", details="All assigned listings finished ✅")
+            log_live_message(f"🎉 [{email}] Worker completed all tasks successfully.")
+
+
+# ── Multi-Account Orchestrator ──────────────────────────────────────────────
+def run_orchestrator(
+    entries: list,
+    time_sleep: int = 1800,
+    wait_time_accounts: int = 2,
+    marketplace_location: str = "UK",
+    wait_for_review: bool = False,
+    max_concurrent_browsers: int = 2,
+    stop_event: Optional[threading.Event] = None,
+    max_review_timeout: int = 1800,
+    distribution_mode: str = "round_robin"
+) -> Dict[str, list]:
+    """
+    Asynchronous Multi-Account Orchestrator.
+    Manages accounts concurrently with worker threads and a concurrency semaphore.
+    """
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    accounts = read_multiple_credentials(CSV_PATH)
+    if not accounts:
+        log_live_message("⚠️ No accounts found in emails.csv. Please add accounts first.")
+        return {}
+
+    # Initialize CSV saved_states
+    if os.path.exists(saved_states_file):
+        try:
+            os.remove(saved_states_file)
+        except Exception:
+            pass
+
+    pd.DataFrame(columns=[
+        "Name", "Status", "Title", "Price", "Category", "Condition", "Description",
+        "Availability", "Product_Tags", "Images", "Video", "public_meetup",
+        "door_dropoff", "door_meetup", "Location", "Market_Location"
+    ]).to_csv(saved_states_file, index=False)
+
+    # Distribute entries among accounts
+    n_accounts = len(accounts)
+    n_entries = len(entries)
+    assignments = []
+
+    if distribution_mode == "distribute_chunks":
+        entries_per_account = n_entries // n_accounts
+        remainder = n_entries % n_accounts
+        i = 0
+        for idx, account in enumerate(accounts):
+            take = entries_per_account + (1 if idx < remainder else 0)
+            assigned = entries[i:i+take] if take > 0 else []
+            assignments.append((account, assigned))
+            i += take
+    else:
+        # Default: All accounts get all entries or equal round-robin
+        for account in accounts:
+            assignments.append((account, list(entries)))
+
+    # Populate saved_states files
+    for account, assigned in assignments:
+        for entry in assigned:
+            loc = entry[4].get() if len(entry) > 4 else ""
+            make_files(entry, account[0], loc, marketplace_location)
+
+    # Initialize Live Status
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "running"
+        LIVE_BOT_STATE["active_browsers"] = 0
+        LIVE_BOT_STATE["max_concurrent"] = max_concurrent_browsers
+        LIVE_BOT_STATE["completed_listings"] = 0
+        LIVE_BOT_STATE["total_listings"] = sum(len(a[1]) for a in assignments)
+        LIVE_BOT_STATE["accounts"] = {}
+        LIVE_BOT_STATE["logs"] = []
+        for account, assigned in assignments:
+            LIVE_BOT_STATE["accounts"][account[0]] = {
+                "email": account[0],
+                "state": "QUEUED",
+                "details": f"Assigned {len(assigned)} listings",
+                "stage": "QUEUED",
+                "elapsed_mins": 0.0,
+                "cooldown_remaining": 0,
+                "active_listing": "",
+                "browser_open": False
+            }
+
+    log_live_message(f"🚀 Launching Orchestrator: {len(accounts)} Accounts, {LIVE_BOT_STATE['total_listings']} Total Listings, Max {max_concurrent_browsers} Concurrent Browsers")
+
+    semaphore = threading.Semaphore(max_concurrent_browsers)
+    workers: List[AccountLifecycleWorker] = []
+
+    for account, assigned in assignments:
+        if not assigned:
+            continue
+
+        loc_list = [entry[4].get() for entry in assigned if len(entry) > 4]
+        worker = AccountLifecycleWorker(
+            account_tuple=account,
+            assigned_entries=assigned,
+            location_list=loc_list,
+            marketplace_location=marketplace_location,
+            time_sleep_cooldown=time_sleep,
+            wait_for_review=wait_for_review,
+            stop_event=stop_event,
+            semaphore=semaphore,
+            max_review_timeout=max_review_timeout
+        )
+        workers.append(worker)
+
+    # Stagger launch of worker threads
+    for worker in workers:
+        if stop_event.is_set():
+            break
+        worker.start()
+        time.sleep(wait_time_accounts)
+
+    # Monitor all workers until completion
+    for worker in workers:
+        while worker.is_alive():
+            if stop_event.is_set():
+                break
+            worker.join(timeout=1.0)
+
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "idle"
+
+    not_gen = {}
+    for worker in workers:
+        if worker.failed_listings:
+            not_gen[worker.email] = worker.failed_listings
+
+    log_live_message("🏁 Orchestrator finished all account workflows.")
     return not_gen
-        
+
+
+# ── Backwards Compatible Entry Points ───────────────────────────────────────
+def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2):
+    return run_orchestrator(
+        entries=entries,
+        time_sleep=time_sleep,
+        wait_time_accounts=wait_time_accounts,
+        marketplace_location=marketplace_location,
+        wait_for_review=wait_for_review,
+        max_concurrent_browsers=max_concurrent_browsers,
+        stop_event=stop_event,
+        distribution_mode="all"
+    )
+
+
+def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", wait_for_review=False, stop_event=None, max_concurrent_browsers=2):
+    return run_orchestrator(
+        entries=entries,
+        time_sleep=time_sleep,
+        wait_time_accounts=wait_time_accounts,
+        marketplace_location=marketplace_location,
+        wait_for_review=wait_for_review,
+        max_concurrent_browsers=max_concurrent_browsers,
+        stop_event=stop_event,
+        distribution_mode="distribute_chunks"
+    )
+
+
 if __name__ == "__main__":
-    main()
+    main([])
