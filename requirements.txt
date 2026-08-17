@@ -7,4 +7,3 @@ openpyxl
 python-multipart
 Pillow
 pyperclip
-tkinterdnd2
