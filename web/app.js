@@ -142,7 +142,7 @@ function buildImageRow(entryId, imgIndex) {
   const browseBtn = document.createElement('button');
   browseBtn.className = 'btn btn-secondary';
   browseBtn.textContent = 'Browse';
-  browseBtn.onclick = () => triggerImageBrowse(entryId, imgIndex);
+  browseBtn.onclick = (e) => triggerImageBrowse(entryId, imgIndex, e.currentTarget);
 
   const dropZone = document.createElement('div');
   dropZone.className = 'drop-zone';
@@ -200,7 +200,9 @@ function handleImageDrop(e, entryId, imgIndex) {
 }
 
 // Native File Selector Trigger for Product Cards
-async function triggerImageBrowse(entryId, imgIndex) {
+async function triggerImageBrowse(entryId, imgIndex, btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) btnEl.textContent = '⏳...';
   try {
     const paths = await browseNativeFiles();
     if (!paths || paths.length === 0) return;
@@ -221,24 +223,37 @@ async function triggerImageBrowse(entryId, imgIndex) {
         updateImagePreview(entryId, newIdx, paths[i]);
       }
     }
+    triggerAutoSave();
   } catch (err) {
     console.error('File browse error:', err);
+  } finally {
+    if (btnEl) btnEl.textContent = origText;
   }
 }
 
-async function triggerVideoBrowse(entryId) {
+async function triggerVideoBrowse(entryId, btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) btnEl.textContent = '⏳...';
   try {
     const path = await browseNativeVideo();
     if (path) {
-      document.getElementById(`video-input-${entryId}`).value = path;
+      const input = document.getElementById(`video-input-${entryId}`);
+      if (input) {
+        input.value = path;
+        triggerAutoSave();
+      }
     }
   } catch (err) {
     console.error('Video browse error:', err);
+  } finally {
+    if (btnEl) btnEl.textContent = origText;
   }
 }
 
 // Native File Selector Trigger for Quick Field Modal
-async function triggerQuickImageBrowse() {
+async function triggerQuickImageBrowse(btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) btnEl.textContent = '⏳...';
   try {
     const paths = await browseNativeFiles();
     if (!paths || paths.length === 0) return;
@@ -251,10 +266,14 @@ async function triggerQuickImageBrowse() {
     }
   } catch (err) {
     console.error('Quick image browse error:', err);
+  } finally {
+    if (btnEl) btnEl.textContent = origText;
   }
 }
 
-async function triggerQuickVideoBrowse() {
+async function triggerQuickVideoBrowse(btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) btnEl.textContent = '⏳...';
   try {
     const path = await browseNativeVideo();
     if (!path) return;
@@ -266,6 +285,8 @@ async function triggerQuickVideoBrowse() {
     }
   } catch (err) {
     console.error('Quick video browse error:', err);
+  } finally {
+    if (btnEl) btnEl.textContent = origText;
   }
 }
 
@@ -323,7 +344,7 @@ function addField() {
           <label>Product Video (Optional)</label>
           <div class="image-row">
             <input id="video-input-${id}" class="input" type="text" placeholder="Full video path (e.g. /home/shaeel/video.mp4)…" />
-            <button class="btn btn-secondary" onclick="triggerVideoBrowse(${id})">Browse</button>
+            <button class="btn btn-secondary" onclick="triggerVideoBrowse(${id}, this)">Browse</button>
             <div class="drop-zone" id="video-drop-${id}"
                  ondragover="event.preventDefault();this.classList.add('drag-over')"
                  ondragleave="this.classList.remove('drag-over')"
@@ -1010,15 +1031,19 @@ function openFolderGeneratorModal() {
   openModal('modal-folder-gen');
 }
 
-async function browseFolderGenPath() {
+async function browseFolderGenPath(btnEl) {
+  const origText = btnEl ? btnEl.textContent : 'Browse';
+  if (btnEl) btnEl.textContent = '⏳...';
   try {
-    const paths = await browseNativeFiles();
-    if (paths && paths.length > 0) {
-      const p = paths[0];
-      const dir = p.substring(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
-      if (dir) document.getElementById('folder-gen-path').value = dir;
+    const folderPath = await browseNativeFolder();
+    if (folderPath) {
+      document.getElementById('folder-gen-path').value = folderPath;
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('Folder browse error:', e);
+  } finally {
+    if (btnEl) btnEl.textContent = origText;
+  }
 }
 
 async function runFolderGenerator() {

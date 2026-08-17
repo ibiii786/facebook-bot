@@ -1,8 +1,9 @@
 import os
+import sys
+import json
+import subprocess
 import ast
 import shutil
-import tkinter as tk
-from tkinter import filedialog
 import pandas as pd
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
@@ -150,13 +151,13 @@ def api_save_session(req: SaveSessionRequest):
 
 @app.get("/load-session")
 def api_load_session():
-    if os.path.exists(SESSION_FILE):
+    if os.path.exists(SESSION_FILE) and os.path.getsize(SESSION_FILE) > 0:
         try:
             with open(SESSION_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return {"status": "success", "state": data}
         except Exception as e:
-            return {"status": "error", "message": str(e), "state": None}
+            return {"status": "success", "state": None}
     return {"status": "success", "state": None}
 
 import threading
@@ -554,39 +555,38 @@ def api_load_fields(name: str = Query(...)):
 
 
 # ── Native OS File Dialog Helper & Browsing Endpoints ──────────────────────
-def open_native_file_dialog(multiple: bool = True) -> List[str]:
+def open_native_file_dialog(dialog_type: str = "files") -> List[str]:
+    picker_script = os.path.join(os.path.dirname(__file__), "file_picker.py")
     try:
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        if multiple:
-            files = filedialog.askopenfilenames(
-                title="Select Image Files",
-                filetypes=[("Image Files", "*.png *.jpg *.jpeg *.webp *.gif"), ("All Files", "*.*")]
-            )
-            root.destroy()
-            return list(files) if files else []
-        else:
-            file_path = filedialog.askopenfilename(
-                title="Select Video File",
-                filetypes=[("Video Files", "*.mp4 *.mov *.avi *.mkv *.webm"), ("All Files", "*.*")]
-            )
-            root.destroy()
-            return [file_path] if file_path else []
+        proc = subprocess.run(
+            [sys.executable, picker_script, dialog_type],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        for line in proc.stdout.splitlines():
+            if line.startswith("PICKER_OUTPUT:"):
+                return json.loads(line[len("PICKER_OUTPUT:"):])
     except Exception as e:
-        print(f"File dialog error: {e}")
-        return []
+        print(f"Subprocess file dialog error: {e}")
+    return []
 
 
 @app.get("/browse-files")
 def api_browse_files():
-    paths = open_native_file_dialog(multiple=True)
+    paths = open_native_file_dialog("files")
     return {"paths": paths}
 
 
 @app.get("/browse-video")
 def api_browse_video():
-    paths = open_native_file_dialog(multiple=False)
+    paths = open_native_file_dialog("video")
+    return {"path": paths[0] if paths else ""}
+
+
+@app.get("/browse-folder")
+def api_browse_folder():
+    paths = open_native_file_dialog("folder")
     return {"path": paths[0] if paths else ""}
 
 

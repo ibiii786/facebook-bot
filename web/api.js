@@ -3,7 +3,9 @@
  * Handles all network requests to the FastAPI backend endpoints.
  */
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin !== 'null')
+  ? window.location.origin
+  : 'http://127.0.0.1:8000';
 
 // Low-level HTTP fetch wrappers
 async function apiPost(path, body) {
@@ -24,13 +26,33 @@ async function apiGet(path) {
 
 // Native OS File Browser Calls
 async function browseNativeFiles() {
-  const res = await apiGet('/browse-files');
-  return res.paths || [];
+  try {
+    const res = await apiGet('/browse-files');
+    return res.paths || [];
+  } catch (err) {
+    console.error('browseNativeFiles error:', err);
+    return [];
+  }
 }
 
 async function browseNativeVideo() {
-  const res = await apiGet('/browse-video');
-  return res.path || '';
+  try {
+    const res = await apiGet('/browse-video');
+    return res.path || '';
+  } catch (err) {
+    console.error('browseNativeVideo error:', err);
+    return '';
+  }
+}
+
+async function browseNativeFolder() {
+  try {
+    const res = await apiGet('/browse-folder');
+    return res.path || '';
+  } catch (err) {
+    console.error('browseNativeFolder error:', err);
+    return '';
+  }
 }
 
 async function uploadDroppedFile(file) {
