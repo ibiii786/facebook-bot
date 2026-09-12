@@ -135,30 +135,9 @@ async function runBot() {
   }
 }
 
+// Legacy alias - both actions now use unified interleaved distribution
 async function runDistributeBot() {
-  if (!validate()) return;
-  disableControls();
-  setStatus('Distributing Bot...', 'active');
-
-  if (typeof onBotStarted === 'function') {
-    onBotStarted();
-  }
-
-  try {
-    const payload = {
-      listings:           entries.map(collectEntryData),
-      wait_time:          getWaitTimeSeconds(''),
-      wait_time_accounts: getWaitTimeSeconds('-account'),
-      marketplace:        getMarketplace()
-    };
-    await apiPost('/distribute-bot', payload);
-  } catch (err) {
-    alert(`Execution Error: ${err.message}`);
-    enableControls();
-    if (typeof stopLiveStatusPolling === 'function') {
-      stopLiveStatusPolling();
-    }
-  }
+  return runBot();
 }
 
 

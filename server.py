@@ -141,8 +141,8 @@ class ListingItem(BaseModel):
 
 class BotRunRequest(BaseModel):
     listings: List[ListingItem]
-    wait_time: int = 2
-    wait_time_accounts: int = 2
+    wait_time: int = 1800
+    wait_time_accounts: int = 300
     marketplace: str = "UK"
     wait_for_review: bool = False
     max_concurrent_browsers: int = 2
@@ -185,6 +185,19 @@ def api_load_session():
         except Exception as e:
             return {"status": "success", "state": None}
     return {"status": "success", "state": None}
+
+
+@app.post("/clear-session")
+def api_clear_session():
+    try:
+        if os.path.exists(SESSION_FILE):
+            os.remove(SESSION_FILE)
+        csv_file = os.path.join(os.path.dirname(__file__), "saved_states.csv")
+        if os.path.exists(csv_file):
+            os.remove(csv_file)
+        return {"status": "success", "message": "All saved listings and states cleared."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Task Execution Handlers ─────────────────────────────────────────────────
@@ -265,6 +278,33 @@ stop_event = threading.Event()
 def api_bot_status():
     """Returns real-time status of all active account workers and queue metrics."""
     return get_live_bot_state()
+
+@app.get("/listing-status")
+def api_listing_status():
+    """Returns posted/pending status for each listing from saved_states.csv."""
+    csv_path = "saved_states.csv"
+    if not os.path.exists(csv_path):
+        return {"listings": []}
+    try:
+        df = pd.read_csv(csv_path, dtype=str).fillna("")
+        results = []
+        for _, row in df.iterrows():
+            name_raw = row.get("Name", "")
+            title = row.get("Title", "")
+            status_val = str(row.get("Status", "")).strip().lower()
+            is_posted = status_val in ("true", "1", "yes")
+            email = ""
+            if "||||" in name_raw:
+                parts = name_raw.split("||||", 1)
+                email = parts[1] if len(parts) > 1 else ""
+            results.append({
+                "title": title,
+                "email": email,
+                "posted": is_posted
+            })
+        return {"listings": results}
+    except Exception as e:
+        return {"listings": [], "error": str(e)}
 
 @app.post("/run-bot")
 def api_run_bot(req: BotRunRequest):

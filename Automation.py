@@ -207,104 +207,161 @@ def simulate_random_human_activity(driver, stop_event=None):
 
     """
     Simulates highly natural, randomized human post-listing browsing.
-    Stays 10-30 seconds total, picking randomly among Home feed, Reels, Watch, or Groups
-    with variable scroll speeds, direction reversals, and natural pauses.
+    Chains 2-4 random activities (Home feed, Reels, Watch, Groups, Marketplace browsing)
+    for a total of 60-180 seconds with variable scroll speeds, direction reversals,
+    and natural pauses between activities.
     """
     print("🎭 Starting post-listing randomized human simulation...")
-    total_target_seconds = random.randint(12, 28)
+    total_target_seconds = random.randint(60, 180)
     start_time = time.time()
 
-    # 1. Brief initial pause on current page
-    initial_pause = random.uniform(3.0, 6.0)
+    # 1. Brief initial pause on current page (like a human admiring their post)
+    initial_pause = random.uniform(4.0, 10.0)
     time.sleep(initial_pause)
 
-    modes = ["HOME_FEED", "REELS", "WATCH", "GROUPS"]
-    mode = random.choice(modes)
+    # Pick 2-4 random activities to chain together
+    all_modes = ["HOME_FEED", "REELS", "WATCH", "GROUPS", "MARKETPLACE_BROWSE"]
+    num_activities = random.randint(2, 4)
+    chosen_modes = random.sample(all_modes, min(num_activities, len(all_modes)))
 
-    try:
-        if mode == "HOME_FEED":
-            print(f"🏠 [Simulation] Navigating to Home feed for {total_target_seconds}s...")
-            driver.get("https://www.facebook.com")
-            time.sleep(random.uniform(3.0, 5.0))
+    for mode_idx, mode in enumerate(chosen_modes):
+        if time.time() - start_time >= total_target_seconds:
+            break
+        if stop_event and stop_event.is_set():
+            break
 
-            while time.time() - start_time < total_target_seconds:
-                if stop_event and stop_event.is_set():
-                    break
-                # Scroll down
-                scroll_down_duration = random.randint(3, 6)
-                scroll_end = time.time() + scroll_down_duration
-                while time.time() < scroll_end:
+        remaining_total = total_target_seconds - (time.time() - start_time)
+        if remaining_total <= 5:
+            break
+
+        # Divide remaining time roughly among remaining activities
+        remaining_activities = len(chosen_modes) - mode_idx
+        activity_budget = remaining_total / remaining_activities
+        # Add some randomness so each activity isn't the same length
+        activity_duration = activity_budget * random.uniform(0.6, 1.4)
+        activity_duration = max(15, min(activity_duration, remaining_total - 5))
+        activity_end = time.time() + activity_duration
+
+        try:
+            if mode == "HOME_FEED":
+                print(f"🏠 [Simulation] Browsing Home feed for ~{int(activity_duration)}s...")
+                driver.get("https://www.facebook.com")
+                time.sleep(random.uniform(3.0, 6.0))
+
+                while time.time() < activity_end:
+                    if stop_event and stop_event.is_set():
+                        break
+                    # Scroll down a few times
+                    scroll_count = random.randint(2, 5)
+                    for _ in range(scroll_count):
+                        if time.time() >= activity_end:
+                            break
+                        try:
+                            driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                        except Exception:
+                            pass
+                        time.sleep(random.uniform(1.5, 3.5))
+
+                    # Pause like reading a post
+                    time.sleep(random.uniform(3.0, 8.0))
+
+                    # Occasional scroll back up (like re-reading something)
+                    if random.random() < 0.35:
+                        scroll_up_count = random.randint(1, 3)
+                        for _ in range(scroll_up_count):
+                            try:
+                                driver.find_element("tag name", "body").send_keys(Keys.PAGE_UP)
+                            except Exception:
+                                pass
+                            time.sleep(random.uniform(1.0, 2.5))
+                        time.sleep(random.uniform(2.0, 5.0))
+
+            elif mode == "REELS":
+                print(f"🎬 [Simulation] Watching Reels for ~{int(activity_duration)}s...")
+                driver.get("https://www.facebook.com/reels/")
+                time.sleep(random.uniform(4.0, 7.0))
+
+                while time.time() < activity_end:
+                    if stop_event and stop_event.is_set():
+                        break
+                    # Watch a reel for 8-20 seconds
+                    watch_time = random.uniform(8.0, 20.0)
+                    sub_end = min(time.time() + watch_time, activity_end)
+                    while time.time() < sub_end:
+                        if stop_event and stop_event.is_set():
+                            break
+                        time.sleep(0.5)
+                    # Swipe to next reel
                     try:
                         driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                     except Exception:
                         pass
-                    time.sleep(random.uniform(1.2, 2.5))
+                    time.sleep(random.uniform(1.0, 3.0))
 
-                # Brief pause like reading a post
-                time.sleep(random.uniform(2.0, 4.0))
+            elif mode == "WATCH":
+                print(f"📺 [Simulation] Browsing Facebook Watch for ~{int(activity_duration)}s...")
+                driver.get("https://www.facebook.com/watch")
+                time.sleep(random.uniform(4.0, 6.0))
 
-                # Occasional scroll up
-                if random.random() < 0.4:
-                    try:
-                        driver.find_element("tag name", "body").send_keys(Keys.PAGE_UP)
-                    except Exception:
-                        pass
-                    time.sleep(random.uniform(1.5, 3.0))
-
-        elif mode == "REELS":
-            print(f"🎬 [Simulation] Navigating to Facebook Reels for {total_target_seconds}s...")
-            driver.get("https://www.facebook.com/reels/")
-            time.sleep(random.uniform(3.5, 6.0))
-
-            while time.time() - start_time < total_target_seconds:
-                if stop_event and stop_event.is_set():
-                    break
-                # Watch reel for 5-10 seconds
-                watch_time = random.uniform(5.0, 10.0)
-                sub_end = time.time() + watch_time
-                while time.time() < sub_end:
+                while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-                    time.sleep(0.5)
-                # Next reel
-                try:
-                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
-                except Exception:
-                    pass
-                time.sleep(random.uniform(1.0, 2.0))
+                    # Watch for a bit then scroll
+                    time.sleep(random.uniform(5.0, 12.0))
+                    try:
+                        driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                    except Exception:
+                        pass
+                    time.sleep(random.uniform(2.0, 4.0))
 
-        elif mode == "WATCH":
-            print(f"📺 [Simulation] Navigating to Facebook Watch videos for {total_target_seconds}s...")
-            driver.get("https://www.facebook.com/watch")
-            time.sleep(random.uniform(3.5, 5.5))
+            elif mode == "GROUPS":
+                print(f"👥 [Simulation] Browsing Groups feed for ~{int(activity_duration)}s...")
+                driver.get("https://www.facebook.com/groups/feed/")
+                time.sleep(random.uniform(4.0, 6.0))
 
-            while time.time() - start_time < total_target_seconds:
-                if stop_event and stop_event.is_set():
-                    break
-                try:
-                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
-                except Exception:
-                    pass
-                time.sleep(random.uniform(2.5, 5.0))
+                while time.time() < activity_end:
+                    if stop_event and stop_event.is_set():
+                        break
+                    scroll_count = random.randint(1, 3)
+                    for _ in range(scroll_count):
+                        if time.time() >= activity_end:
+                            break
+                        try:
+                            driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                        except Exception:
+                            pass
+                        time.sleep(random.uniform(2.0, 4.0))
+                    time.sleep(random.uniform(3.0, 7.0))
 
-        else:  # GROUPS
-            print(f"👥 [Simulation] Navigating to Facebook Groups feed for {total_target_seconds}s...")
-            driver.get("https://www.facebook.com/groups/feed/")
-            time.sleep(random.uniform(3.5, 5.5))
+            elif mode == "MARKETPLACE_BROWSE":
+                print(f"🛒 [Simulation] Browsing Marketplace for ~{int(activity_duration)}s...")
+                driver.get("https://www.facebook.com/marketplace/")
+                time.sleep(random.uniform(4.0, 7.0))
 
-            while time.time() - start_time < total_target_seconds:
-                if stop_event and stop_event.is_set():
-                    break
-                try:
-                    driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
-                except Exception:
-                    pass
-                time.sleep(random.uniform(2.5, 4.5))
+                while time.time() < activity_end:
+                    if stop_event and stop_event.is_set():
+                        break
+                    scroll_count = random.randint(2, 4)
+                    for _ in range(scroll_count):
+                        if time.time() >= activity_end:
+                            break
+                        try:
+                            driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
+                        except Exception:
+                            pass
+                        time.sleep(random.uniform(1.5, 3.5))
+                    time.sleep(random.uniform(3.0, 6.0))
 
-    except Exception as e:
-        print(f"Note during simulation: {e}")
+        except Exception as e:
+            print(f"Note during simulation ({mode}): {e}")
 
-    print("✨ Post-listing human simulation complete.")
+        # Brief transition pause between activities (like a human deciding what to do next)
+        if mode_idx < len(chosen_modes) - 1 and time.time() - start_time < total_target_seconds:
+            transition_pause = random.uniform(2.0, 5.0)
+            time.sleep(transition_pause)
+
+    elapsed = int(time.time() - start_time)
+    print(f"✨ Post-listing human simulation complete ({elapsed}s across {len(chosen_modes)} activities).")
 
 
 def check_account_health_and_previous_listing(driver):

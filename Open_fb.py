@@ -502,24 +502,16 @@ def run_orchestrator(
         "door_dropoff", "door_meetup", "Location", "Market_Location"
     ]).to_csv(saved_states_file, index=False)
 
-    # Distribute entries among accounts
+    # Distribute entries among accounts via Interleaved Round-Robin:
+    # Account 0 gets listings [0, N, 2N, ...] -> Listing 1, Listing 3, Listing 5...
+    # Account 1 gets listings [1, N+1, 2N+1, ...] -> Listing 2, Listing 4, Listing 6...
+    # Wave 1 posts Listing 1 (ID 1) & Listing 2 (ID 2).
+    # After 30m cooldown, Wave 2 posts Listing 3 (ID 1) & Listing 4 (ID 2).
     n_accounts = len(accounts)
-    n_entries = len(entries)
-    assignments = []
-
-    if distribution_mode == "distribute_chunks":
-        entries_per_account = n_entries // n_accounts
-        remainder = n_entries % n_accounts
-        i = 0
-        for idx, account in enumerate(accounts):
-            take = entries_per_account + (1 if idx < remainder else 0)
-            assigned = entries[i:i+take] if take > 0 else []
-            assignments.append((account, assigned))
-            i += take
-    else:
-        # Default: All accounts get all entries or equal round-robin
-        for account in accounts:
-            assignments.append((account, list(entries)))
+    assigned_buckets = [[] for _ in range(n_accounts)]
+    for idx, entry in enumerate(entries):
+        assigned_buckets[idx % n_accounts].append(entry)
+    assignments = list(zip(accounts, assigned_buckets))
 
     # Populate saved_states files
     for account, assigned in assignments:
@@ -586,12 +578,18 @@ def run_orchestrator(
 
 
 
-    # Stagger launch of worker threads
-    for worker in workers:
+    # Stagger launch of worker threads with randomized jitter
+    for w_idx, worker in enumerate(workers):
         if stop_event.is_set():
             break
         worker.start()
-        time.sleep(wait_time_accounts)
+        # Don't sleep after the last worker
+        if w_idx < len(workers) - 1:
+            jitter = random.randint(30, 90)
+            stagger_total = wait_time_accounts + jitter
+            log_live_message(f"⏳ Staggering next account launch by {stagger_total}s ({wait_time_accounts}s configured + {jitter}s jitter)...")
+            if not _interruptible_sleep(stagger_total, stop_event, state_label="Inter-Account Launch Stagger"):
+                break
 
     # Monitor all workers until completion
     for worker in workers:
@@ -621,7 +619,7 @@ def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="U
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
         stop_event=stop_event,
-        distribution_mode="all"
+        distribution_mode="interleaved"
     )
 
 run_fb_bot = main
@@ -634,7 +632,7 @@ def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, ma
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
         stop_event=stop_event,
-        distribution_mode="distribute_chunks"
+        distribution_mode="interleaved"
     )
 
 

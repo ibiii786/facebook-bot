@@ -105,24 +105,13 @@ class SceneApp(TkinterDnD.Tk):
 
         # self.save_button = self.create_button(self.button_bar, "💾 Save All", "#0078d7", self.save_all)
         # self.save_button.pack(side="left", padx=10)
-        self.run_button = self.create_button(self.button_bar, "🤖 Run Bot", "#a83232", self.run_bot,10)
+        self.run_button = self.create_button(self.button_bar, "🤖 Run Bot", "#a83232", self.run_bot, 10)
         self.run_button.pack(side="left", padx=10)
-        # --- Status Label ---
-        # Ensure long label wraps instead of being cut off
-        self.distribute_btn = tk.Button(
-            self.button_bar,
-            text="📤 Distribute Among Accounts",
-            bg="#0078d7",
-            fg="white",
-            relief="flat",
-            font=("Segoe UI", 11, "bold"),
-            wraplength=180,        # allow multi-line text so it's not clipped
-            justify="center",
-            padx=8,
-            pady=4,
-            command=lambda: self.run_distribute_bot()
-        )
-        #Run failed button
+
+        self.clear_all_btn = self.create_button(self.button_bar, "🗑️ Clear All Listings", "#a83232", self.clear_all_listings, 16)
+        self.clear_all_btn.pack(side="left", padx=10)
+
+        # Run failed button
         self.run_failed_button = tk.Button(
             self.button_bar,
             text="Regenerate Failed Listings",
@@ -210,10 +199,6 @@ class SceneApp(TkinterDnD.Tk):
             width=8
         )
         self.hours_minute_sec_menu.pack(side="left", padx=5)
-        # keep hover behavior consistent with other buttons
-        self.distribute_btn.bind("<Enter>", lambda e, b=self.distribute_btn, c="#0078d7": b.config(bg=self.shade_color(c, -20)))
-        self.distribute_btn.bind("<Leave>", lambda e, b=self.distribute_btn, c="#0078d7": b.config(bg=c))
-        self.distribute_btn.pack(side="left", padx=10)
         self.status_label = tk.Label(
             self,
             text="",
@@ -791,28 +776,32 @@ class SceneApp(TkinterDnD.Tk):
         
         bot_thread = threading.Thread(target=self._run_bot_thread,daemon=True)
         bot_thread.start()
-    def run_distribute_bot(self):
-        self.disable_controls()
-        self.status_label.config(text="🤖 Bot is running... Please wait.")
-        check=self.validate()
-        if not check:
+
+    def clear_all_listings(self):
+        if not self.entries:
+            messagebox.showinfo("Info", "There are no listings to remove.")
             return
-        bot_thread = threading.Thread(target=self._run_distribute_bot_thread,daemon=True)
-        bot_thread.start()
-    def _run_distribute_bot_thread(self):
-        try:
-            time=self.get_wait_time()
-            marketplace=self.country_var.get()
-            failed_videos = distribute_among_accounts(self.entries,time, marketplace)
-            self.after(0, lambda: self.on_bot_complete(failed_videos))
-        except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Error", f"Failed to run bot:\n{e}"))
-            self.after(0, self.enable_controls)
+        if messagebox.askyesno("Confirm Remove All", f"Are you sure you want to remove all {len(self.entries)} saved listing(s)?"):
+            for entry in list(self.entries):
+                try:
+                    entry[-2].destroy()
+                except Exception:
+                    pass
+            self.entries.clear()
+            self.auto_grid_row = 0
+            self.auto_grid_col = 0
+            if os.path.exists("saved_states.csv"):
+                try:
+                    os.remove("saved_states.csv")
+                except Exception:
+                    pass
+            self.status_label.config(text="All listings removed.")
+
     def _run_bot_thread(self):
         try:
-            time=self.get_wait_time()
-            marketplace=self.country_var.get()
-            failed_videos = main(self.entries,time, marketplace)
+            time = self.get_wait_time()
+            marketplace = self.country_var.get()
+            failed_videos = main(self.entries, time, marketplace)
             self.after(0, lambda: self.on_bot_complete(failed_videos))
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Error", f"Failed to run bot:\n{e}"))
@@ -830,8 +819,8 @@ class SceneApp(TkinterDnD.Tk):
         self.add_button.config(state=tk.DISABLED)
         self.renew_btn.config(state=tk.DISABLED)
         self.run_button.config(state=tk.DISABLED)
+        self.clear_all_btn.config(state=tk.DISABLED)
         self.delete_and_relist_btn.config(state=tk.DISABLED)
-        self.distribute_btn.config(state=tk.DISABLED)
         self.run_failed_button.config(state=tk.DISABLED)
         self.save_fields_button.config(state=tk.DISABLED)
         self.load_fields_button.config(state=tk.DISABLED)
@@ -841,8 +830,8 @@ class SceneApp(TkinterDnD.Tk):
         self.add_button.config(state=tk.NORMAL)
         self.renew_btn.config(state=tk.NORMAL)
         self.run_button.config(state=tk.NORMAL)
+        self.clear_all_btn.config(state=tk.NORMAL)
         self.delete_and_relist_btn.config(state=tk.NORMAL)
-        self.distribute_btn.config(state=tk.NORMAL)
         self.run_failed_button.config(state=tk.NORMAL)
         self.save_fields_button.config(state=tk.NORMAL)
         self.load_fields_button.config(state=tk.NORMAL)

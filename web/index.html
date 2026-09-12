@@ -4,8 +4,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Facebook Marketplace Bot</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2.1" />
 </head>
 
 <body>
@@ -50,9 +53,9 @@
             <!-- Hidden stats element for app.js sync -->
             <span id="stat-count" style="display:none;">0</span>
             <button id="btn-save-session" class="btn btn-secondary" onclick="saveFullSession(true)">Save Session</button>
+            <button id="btn-clear-all" class="btn btn-danger" onclick="clearAllListingsWithConfirm()">Clear All Listings</button>
             <button id="btn-stop" class="btn btn-danger" onclick="endTasks()">Stop All Tasks</button>
             <button id="btn-add" class="btn btn-secondary" onclick="addField()">Add Product</button>
-            <button id="btn-distribute" class="btn btn-secondary" onclick="runDistributeBot()">Distribute Bot</button>
             <button id="btn-run" class="btn btn-primary" onclick="runBot()">Run Bot</button>
           </div>
         </div>
@@ -83,10 +86,10 @@
             <div class="form-group">
               <label>Delay Between Listings (Per-Account Cooldown)</label>
               <div class="inline-inputs">
-                <input id="wait-value" class="input" type="number" min="0" max="60" value="2" />
+                <input id="wait-value" class="input" type="number" min="0" max="120" value="30" />
                 <select id="wait-unit" class="input">
                   <option value="seconds">Seconds</option>
-                  <option value="minutes">Minutes</option>
+                  <option value="minutes" selected>Minutes</option>
                   <option value="hours">Hours</option>
                 </select>
               </div>
@@ -94,10 +97,10 @@
             <div class="form-group">
               <label>Delay Between Accounts (Inter-Account Stagger)</label>
               <div class="inline-inputs">
-                <input id="wait-value-account" class="input" type="number" min="0" max="60" value="2" />
+                <input id="wait-value-account" class="input" type="number" min="0" max="120" value="5" />
                 <select id="wait-unit-account" class="input">
                   <option value="seconds">Seconds</option>
-                  <option value="minutes">Minutes</option>
+                  <option value="minutes" selected>Minutes</option>
                   <option value="hours">Hours</option>
                 </select>
               </div>
@@ -411,9 +414,9 @@
     <img id="lightbox-img" class="lightbox-img" src="" alt="Preview" />
   </div>
 
-  <script src="UI.js"></script>
-  <script src="api.js"></script>
-  <script src="app.js"></script>
+  <script src="UI.js?v=2.1"></script>
+  <script src="api.js?v=2.1"></script>
+  <script src="app.js?v=2.1"></script>
 </body>
 
 </html>

@@ -49,14 +49,14 @@ function openLightbox(src) {
 }
 
 function disableControls() {
-  ['btn-add', 'btn-save-fields', 'btn-run', 'btn-distribute', 'btn-failed', 'btn-load-fields', 'btn-renew', 'btn-delete-relist', 'btn-save-quick']
+  ['btn-add', 'btn-save-fields', 'btn-run', 'btn-clear-all', 'btn-failed', 'btn-load-fields', 'btn-renew', 'btn-delete-relist', 'btn-save-quick']
     .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
   const stop_btn = document.getElementById('btn-stop');
   if (stop_btn) stop_btn.disabled = false;
 }
 
 function enableControls() {
-  ['btn-add', 'btn-save-fields', 'btn-run', 'btn-distribute', 'btn-failed', 'btn-load-fields', 'btn-renew', 'btn-delete-relist', 'btn-save-quick']
+  ['btn-add', 'btn-save-fields', 'btn-run', 'btn-clear-all', 'btn-failed', 'btn-load-fields', 'btn-renew', 'btn-delete-relist', 'btn-save-quick']
     .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
   setStatus('Ready');
 }
@@ -360,6 +360,7 @@ function addField() {
   card.innerHTML = `
     <div class="card-header">
       <h3 id="card-title-${id}">Product Listing #${entries.length}</h3>
+      <span id="listing-status-badge-${id}" class="listing-status-badge" style="display:none;"></span>
       <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="removeField(${id})">❌ Remove</button>
     </div>
     <div class="card-body">
@@ -465,6 +466,49 @@ function removeField(id) {
   if (card) card.remove();
   rerenderNumbers();
   triggerAutoSave();
+}
+
+async function clearAllListingsWithConfirm() {
+  if (entries.length === 0) {
+    alert('There are no saved listings to remove.');
+    return;
+  }
+
+  const confirmed = confirm(
+    `Are you sure you want to remove all ${entries.length} saved listing(s)?\n\n` +
+    'This will delete all product cards from the screen and wipe the saved session backup.'
+  );
+  if (!confirmed) return;
+
+  // 1. Wipe local memory and DOM cards
+  entries = [];
+  const listEl = document.getElementById('entries-list');
+  if (listEl) listEl.innerHTML = '';
+  updateCount();
+
+  // 2. Clear browser localStorage
+  try {
+    localStorage.removeItem('fb_bot_session_state');
+  } catch (e) {
+    console.warn('Failed clearing localStorage:', e);
+  }
+
+  // 3. Clear backend session and saved states
+  try {
+    if (typeof apiPost === 'function') {
+      await apiPost('/clear-session', {});
+    }
+  } catch (e) {
+    console.warn('Failed calling /clear-session:', e);
+  }
+
+  // 4. Update UI feedback
+  const indicator = document.getElementById('save-indicator');
+  if (indicator) {
+    indicator.textContent = 'All listings removed';
+    indicator.style.color = 'var(--text-muted)';
+  }
+  setStatus('All saved listings removed', 'success');
 }
 
 function handleVideoDrop(e, entryId) {
@@ -668,16 +712,78 @@ function onBotStopped() {
   }, 1000);
 }
 
+let listingStatusPollTimer = null;
+
 function startLiveStatusPolling() {
   if (liveStatusPollTimer) clearInterval(liveStatusPollTimer);
   liveStatusPollTimer = setInterval(pollAndRenderBotStatus, 1500);
   pollAndRenderBotStatus();
+  // Also start polling listing status
+  if (listingStatusPollTimer) clearInterval(listingStatusPollTimer);
+  listingStatusPollTimer = setInterval(pollAndRenderListingStatus, 3000);
+  pollAndRenderListingStatus();
 }
 
 function stopLiveStatusPolling() {
   if (liveStatusPollTimer) {
     clearInterval(liveStatusPollTimer);
     liveStatusPollTimer = null;
+  }
+  if (listingStatusPollTimer) {
+    clearInterval(listingStatusPollTimer);
+    listingStatusPollTimer = null;
+  }
+}
+
+async function pollAndRenderListingStatus() {
+  try {
+    const resp = await fetch('/listing-status');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const listings = data.listings || [];
+
+    // Build a map of title -> posted status
+    const postedMap = {};
+    listings.forEach(item => {
+      const key = item.title.trim().toLowerCase();
+      if (!postedMap[key]) postedMap[key] = [];
+      postedMap[key].push(item);
+    });
+
+    // Update badges on each product card
+    entries.forEach(e => {
+      const titleInput = document.getElementById(`title-${e.id}`);
+      const badge = document.getElementById(`listing-status-badge-${e.id}`);
+      if (!titleInput || !badge) return;
+
+      const cardTitle = titleInput.value.trim().toLowerCase();
+      if (!cardTitle) {
+        badge.style.display = 'none';
+        return;
+      }
+
+      const matches = postedMap[cardTitle];
+      if (matches && matches.length > 0) {
+        const allPosted = matches.every(m => m.posted);
+        const somePosted = matches.some(m => m.posted);
+        if (allPosted) {
+          badge.textContent = '✅ Posted';
+          badge.className = 'listing-status-badge badge-posted';
+        } else if (somePosted) {
+          const postedCount = matches.filter(m => m.posted).length;
+          badge.textContent = `⏳ ${postedCount}/${matches.length} Posted`;
+          badge.className = 'listing-status-badge badge-partial';
+        } else {
+          badge.textContent = '⏳ Pending';
+          badge.className = 'listing-status-badge badge-pending';
+        }
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    });
+  } catch (err) {
+    // Silently fail — this is a background poll
   }
 }
 
@@ -788,15 +894,59 @@ async function pollAndRenderBotStatus() {
 
 function onBotComplete(failedVideos) {
   enableControls();
+  // Do one final listing status poll before stopping
+  pollAndRenderListingStatus();
   stopLiveStatusPolling();
   pollAndRenderBotStatus();
 
   const hasFailures = Object.values(failedVideos).some(arr => arr && arr.length > 0);
+
+  // Show completion banner
+  showCompletionBanner(hasFailures, failedVideos);
+
   if (!hasFailures) {
     setStatus('Finished Successfully', 'success');
-    return;
+  } else {
+    showFailedModal(failedVideos);
   }
-  showFailedModal(failedVideos);
+}
+
+function showCompletionBanner(hasFailures, failedVideos) {
+  // Remove any existing banner
+  const existing = document.getElementById('completion-banner');
+  if (existing) existing.remove();
+
+  const totalFailed = Object.values(failedVideos).reduce((sum, arr) => sum + (arr ? arr.length : 0), 0);
+
+  const banner = document.createElement('div');
+  banner.id = 'completion-banner';
+  banner.className = hasFailures ? 'completion-banner completion-banner-warning' : 'completion-banner completion-banner-success';
+
+  const icon = hasFailures ? '⚠️' : '🎉';
+  const title = hasFailures ? 'Bot Finished With Issues' : 'All Listings Completed Successfully!';
+  const subtitle = hasFailures
+    ? `${totalFailed} listing(s) had issues. Check the details below.`
+    : 'All product listings have been posted to Facebook Marketplace.';
+
+  banner.innerHTML = `
+    <div class="completion-banner-content">
+      <div class="completion-banner-icon">${icon}</div>
+      <div class="completion-banner-text">
+        <div class="completion-banner-title">${title}</div>
+        <div class="completion-banner-subtitle">${subtitle}</div>
+      </div>
+      <button class="completion-banner-dismiss" onclick="this.parentElement.parentElement.remove()">✕</button>
+    </div>
+  `;
+
+  // Insert at top of the main content area
+  const main = document.querySelector('.main-content') || document.body;
+  main.insertBefore(banner, main.firstChild);
+
+  // Auto-dismiss after 30 seconds
+  setTimeout(() => {
+    if (banner.parentElement) banner.remove();
+  }, 30000);
 }
 
 function showFailedModal(failedVideos) {
