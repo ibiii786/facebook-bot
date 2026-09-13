@@ -285,7 +285,147 @@ async function browseImagesForCard(entryId) {
   }
 }
 
+// ── Bulk Image Pool Operations (Smart Anti-Duplicate Allocation) ─────────────
+async function browseBulkImageFolder(btnEl) {
+  const origText = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.textContent = '⏳...'; btnEl.disabled = true; }
+  try {
+    const folderPath = await browseNativeFolder();
+    if (folderPath) {
+      const input = document.getElementById('bulk-image-folder');
+      if (input) input.value = folderPath;
+      localStorage.setItem('fb_bot_image_pool_folder', folderPath);
+      checkImagePoolStatus();
+      triggerAutoSave();
+    }
+  } catch (e) {
+    console.error('browseBulkImageFolder error:', e);
+  } finally {
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
+  }
+}
 
+let imagePoolStatusDebounce = null;
+async function checkImagePoolStatus() {
+  clearTimeout(imagePoolStatusDebounce);
+  imagePoolStatusDebounce = setTimeout(async () => {
+    const folder = (document.getElementById('bulk-image-folder')?.value || localStorage.getItem('fb_bot_image_pool_folder') || '').trim();
+    const badge = document.getElementById('bulk-image-pool-status');
+    if (!badge) return;
+
+    if (!folder) {
+      badge.style.display = 'none';
+      return;
+    }
+
+    try {
+      localStorage.setItem('fb_bot_image_pool_folder', folder);
+      const res = await scanImagePoolAPI(folder);
+      if (res.status === 'success' && res.count > 0) {
+        badge.style.display = 'inline-block';
+        badge.style.background = '#22c55e22';
+        badge.style.color = '#22c55e';
+        badge.style.border = '1px solid #22c55e66';
+        badge.textContent = `📂 ${res.count} images ready in pool`;
+      } else {
+        badge.style.display = 'inline-block';
+        badge.style.background = '#ef444422';
+        badge.style.color = '#ef4444';
+        badge.style.border = '1px solid #ef444466';
+        badge.textContent = `⚠️ No valid photos found in folder`;
+      }
+    } catch (e) {
+      badge.style.display = 'none';
+    }
+  }, 300);
+}
+
+async function autoAssignPoolImagesToAll(btnEl) {
+  const folder = (document.getElementById('bulk-image-folder')?.value || localStorage.getItem('fb_bot_image_pool_folder') || '').trim();
+  if (!folder) {
+    alert('Please enter or browse an Image Pool Folder Path in Automation Settings first.');
+    switchTab('tab-settings');
+    document.getElementById('bulk-image-folder')?.focus();
+    return;
+  }
+
+  if (entries.length === 0) {
+    alert('No product listings currently added. Add or import listings first.');
+    return;
+  }
+
+  const origText = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.textContent = '⏳ Assigning...'; btnEl.disabled = true; }
+
+  try {
+    setStatus('Assigning images from pool using phased anti-duplicate algorithm...', 'active');
+    const imagesPerListing = parseInt(document.getElementById('bulk-images-per-listing')?.value || '1', 10) || 1;
+    const minGap = parseInt(document.getElementById('bulk-image-gap')?.value || '25', 10) || 25;
+
+    const currentListings = entries.map(collectEntryData);
+    const res = await autoAssignImagesAPI({
+      folder_path: folder,
+      listings: currentListings,
+      images_per_listing: imagesPerListing,
+      min_gap: minGap,
+      empty_only: false
+    });
+
+    if (res.status === 'success' && res.fields) {
+      res.fields.forEach((f, idx) => {
+        if (idx >= entries.length) return;
+        const entry = entries[idx];
+        const id = entry.id;
+
+        if (f.images && f.images.length > 0) {
+          const firstInput = document.getElementById(`img-input-${id}-0`);
+          if (firstInput) {
+            firstInput.value = f.images[0];
+            updateImagePreview(id, 0, f.images[0]);
+          }
+
+          for (let i = 1; i < f.images.length && i < MAX_IMAGES; i++) {
+            if (i >= entry.imageCount) {
+              addImageRow(id);
+            }
+            const inp = document.getElementById(`img-input-${id}-${i}`);
+            if (inp) {
+              inp.value = f.images[i];
+              updateImagePreview(id, i, f.images[i]);
+            }
+          }
+
+          const warn = document.getElementById(`no-images-warn-${id}`);
+          if (warn) warn.remove();
+        }
+      });
+
+      triggerAutoSave();
+
+      const meta = res.meta || {};
+      const reused = meta.reused_count || 0;
+      const assigned = meta.assigned_count || 0;
+      let msg = `Assigned photos to ${assigned}/${entries.length} listings from pool!`;
+      if (reused > 0) {
+        msg += ` (${reused} cross-account reuses spaced ≥${minGap} gap, 0 repeat per ID)`;
+      }
+      setStatus(msg, 'success');
+
+      if (meta.warnings && meta.warnings.length > 0) {
+        alert('⚠️ Image Allocation Notice:\n\n' + meta.warnings.join('\n\n'));
+      }
+    } else {
+      alert(`Auto-assignment failed: ${res.detail || res.message || 'Unknown error'}`);
+      setStatus('Ready');
+    }
+  } catch (err) {
+    console.error('autoAssignPoolImagesToAll error:', err);
+    alert(`Failed to auto-assign images: ${err.message}`);
+    setStatus('Ready');
+  } finally {
+    if (btnEl) { btnEl.textContent = origText; btnEl.disabled = false; }
+  }
+}
 
 async function triggerVideoBrowse(entryId, btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
@@ -685,9 +825,47 @@ function collectEntryData(entry) {
   };
 }
 
-function validate() {
+async function validate() {
   if (entries.length === 0) { alert('Please add at least one product listing.'); return false; }
   const poolHasLocations = (document.getElementById('location-pool')?.value || '').split('|').map(s => s.trim()).filter(Boolean).length > 0;
+
+  // Check for missing images
+  const missingImgIndices = [];
+  for (let i = 0; i < entries.length; i++) {
+    const d = collectEntryData(entries[i]);
+    if (d.images.length === 0) missingImgIndices.push(i + 1);
+  }
+
+  if (missingImgIndices.length > 0) {
+    const poolFolder = (document.getElementById('bulk-image-folder')?.value || localStorage.getItem('fb_bot_image_pool_folder') || '').trim();
+    if (poolFolder) {
+      const confirmAssign = confirm(
+        `⚠️ ${missingImgIndices.length} listing(s) have no images.\n\n` +
+        `Would you like to automatically assign photos from your Bulk Image Pool now?\n` +
+        `("${poolFolder}")\n\n` +
+        `Click OK to auto-assign using the anti-duplicate algorithm and continue.`
+      );
+      if (confirmAssign) {
+        await autoAssignPoolImagesToAll();
+        // Re-check
+        const stillMissing = [];
+        for (let i = 0; i < entries.length; i++) {
+          const d = collectEntryData(entries[i]);
+          if (d.images.length === 0) stillMissing.push(i + 1);
+        }
+        if (stillMissing.length > 0) {
+          alert(`Product #${stillMissing[0]}: At least one image is required.`);
+          return false;
+        }
+      } else {
+        alert(`Product #${missingImgIndices[0]}: At least one image is required.`);
+        return false;
+      }
+    } else {
+      alert(`Product #${missingImgIndices[0]}: At least one image is required.\n\n💡 Tip: Set an Image Pool Folder in Automation Settings to auto-assign photos to all listings without manual browsing!`);
+      return false;
+    }
+  }
 
   for (let i = 0; i < entries.length; i++) {
     const d = collectEntryData(entries[i]);
@@ -1219,6 +1397,12 @@ function getFullSessionData() {
       pickup: !!document.getElementById('default-pickup')?.checked,
       dropoff: !!document.getElementById('default-dropoff')?.checked,
     },
+    bulkImagePool: {
+      folder: document.getElementById('bulk-image-folder')?.value || '',
+      imagesPerListing: document.getElementById('bulk-images-per-listing')?.value || '1',
+      minGap: document.getElementById('bulk-image-gap')?.value || '25',
+      autoAssignCSV: !!document.getElementById('bulk-auto-assign-csv')?.checked,
+    },
     locationPool: document.getElementById('location-pool')?.value || '',
     entries: entries.map(collectEntryData),
     savedAt: new Date().toISOString()
@@ -1301,6 +1485,20 @@ function restoreFullSession(data) {
       if (document.getElementById('default-meetup')) document.getElementById('default-meetup').checked = !!data.defaults.meetup;
       if (document.getElementById('default-pickup')) document.getElementById('default-pickup').checked = !!data.defaults.pickup;
       if (document.getElementById('default-dropoff')) document.getElementById('default-dropoff').checked = !!data.defaults.dropoff;
+    }
+
+    // Bulk Image Pool
+    if (data.bulkImagePool) {
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
+      set('bulk-image-folder', data.bulkImagePool.folder);
+      set('bulk-images-per-listing', data.bulkImagePool.imagesPerListing);
+      set('bulk-image-gap', data.bulkImagePool.minGap);
+      if (document.getElementById('bulk-auto-assign-csv')) {
+        document.getElementById('bulk-auto-assign-csv').checked = data.bulkImagePool.autoAssignCSV !== false;
+      }
+      if (data.bulkImagePool.folder) {
+        checkImagePoolStatus();
+      }
     }
 
     // 3. Location Pool
@@ -1395,9 +1593,16 @@ async function loadSessionOnStartup() {
     } catch (e) {
       console.warn('Server session load failed:', e);
     }
+  // 3. Fallback check for persisted image pool folder
+  const savedPool = localStorage.getItem('fb_bot_image_pool_folder');
+  if (savedPool && document.getElementById('bulk-image-folder')) {
+    if (!document.getElementById('bulk-image-folder').value) {
+      document.getElementById('bulk-image-folder').value = savedPool;
+    }
+    checkImagePoolStatus();
   }
 
-  // 3. Attach auto-save listeners across inputs
+  // 4. Attach auto-save listeners across inputs
   document.addEventListener('input', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
       triggerAutoSave();
@@ -1488,8 +1693,19 @@ async function handleCSVFileSelected(event) {
 
     triggerAutoSave();
 
-    if (missingImages.length > 0) {
-      setStatus(`Imported ${res.fields.length} listings — ⚠️ ${missingImages.length} need images!`, 'warning');
+    if (res.image_meta && res.image_meta.assigned_count > 0) {
+      const reused = res.image_meta.reused_count || 0;
+      const minGap = document.getElementById('bulk-image-gap')?.value || '25';
+      let msg = `Imported ${res.fields.length} listings & auto-assigned photos from pool!`;
+      if (reused > 0) {
+        msg += ` (${reused} cross-account reuses spaced ≥${minGap} gap, 0 repeat per ID)`;
+      }
+      setStatus(msg, 'success');
+      if (res.image_meta.warnings && res.image_meta.warnings.length > 0) {
+        alert('⚠️ Image Allocation Notice:\n\n' + res.image_meta.warnings.join('\n\n'));
+      }
+    } else if (missingImages.length > 0) {
+      setStatus(`Imported ${res.fields.length} listings — ⚠️ ${missingImages.length} need images! (Set an Image Pool Folder in Automation Settings to auto-assign)`, 'warning');
     } else {
       setStatus(`Imported ${res.fields.length} listings from ${file.name}`, 'success');
     }

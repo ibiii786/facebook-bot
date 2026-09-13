@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 
 if sys.platform == "win32":
     try:
@@ -16,9 +17,10 @@ import tkinter as tk
 from tkinter import filedialog
 import threading
 import pandas as pd
+import image_allocator
 
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -545,8 +547,173 @@ class ScanFolderRequest(BaseModel):
     folder_path: str
 
 
+class AutoAssignImagesRequest(BaseModel):
+    folder_path: str
+    listings: List[dict]
+    images_per_listing: int = 1
+    min_gap: int = 25
+    empty_only: bool = True
+
+
+def _normalize_csv_row(row_dict: dict) -> dict:
+    """Normalizes arbitrary CSV column headers (case-insensitive, synonyms) into standard listing fields."""
+    norm = {}
+    for k, v in row_dict.items():
+        clean_k = str(k).strip().lower().replace("_", " ")
+        norm[clean_k] = v
+
+    def find_val(*keys, default=""):
+        for k in keys:
+            clean = k.strip().lower().replace("_", " ")
+            if clean in norm:
+                val = norm[clean]
+                if pd.isna(val):
+                    continue
+                s = str(val).strip()
+                if s.lower() != "nan" and s != "":
+                    return s
+        return default
+
+    # Title
+    title = find_val("title", "product title", "item title", "name", "product name", "listing title", "heading", default="")
+    # Description
+    desc = find_val("description", "desc", "details", "product description", "item description", "body", default="")
+    # Category
+    cat = find_val("category", "product category", "cat", default="Furniture")
+    # Price
+    price_raw = find_val("price", "cost", "amount", "price ($)", "price (£)", "price (cad)", default="85")
+    price_clean = re.sub(r"[^\d.]", "", price_raw)
+    if not price_clean:
+        price = "85"
+    elif "." in price_clean:
+        price = str(int(round(float(price_clean))))
+    else:
+        price = price_clean
+    # Location
+    loc = find_val("location", "city", "town", "area", "marketplace location", default="")
+    # Condition
+    cond_raw = find_val("condition", "item condition", default="New")
+    cond_lower = cond_raw.lower()
+    if "like new" in cond_lower:
+        cond = "Used - Like New"
+    elif "good" in cond_lower:
+        cond = "Used - Good"
+    elif "fair" in cond_lower:
+        cond = "Used - Fair"
+    else:
+        cond = "New"
+    # Availability
+    avail_raw = find_val("availability", "status", "stock", default="List as In Stock")
+    avail = "List as Single Item" if "single" in avail_raw.lower() else "List as In Stock"
+    # Tags
+    tags_raw = find_val("tags", "tag", "product tags", "keywords", default="")
+    if tags_raw.startswith("[") and tags_raw.endswith("]"):
+        try:
+            tags = ast.literal_eval(tags_raw)
+        except Exception:
+            tags = [s.strip() for s in tags_raw.strip("[]").split(",") if s.strip()]
+    else:
+        tags = [s.strip() for s in tags_raw.split(",") if s.strip()]
+    # Images
+    imgs_raw = find_val("images", "image", "photos", "photo", "image paths", default="")
+    if imgs_raw.startswith("[") and imgs_raw.endswith("]"):
+        try:
+            imgs = ast.literal_eval(imgs_raw)
+        except Exception:
+            imgs = [s.strip() for s in imgs_raw.strip("[]").split(",") if s.strip()]
+    else:
+        imgs = [s.strip() for s in imgs_raw.split("|") if s.strip()] or [s.strip() for s in imgs_raw.split(",") if s.strip()]
+    imgs = [i for i in imgs if i and i.lower() != "nan"]
+    # Video
+    video = find_val("video", "video path", default="")
+    # Delivery
+    meetup = 1 if find_val("public meetup", "public_meetup", "meetup", default="0").lower() in ["1", "true", "yes"] else 0
+    pickup = 1 if find_val("door pickup", "door_pickup", "pickup", default="0").lower() in ["1", "true", "yes"] else 0
+    dropoff = 1 if find_val("door dropoff", "door_dropoff", "dropoff", default="1").lower() in ["1", "true", "yes"] else 0
+
+    return {
+        "title": title,
+        "description": desc,
+        "category": cat,
+        "price": price,
+        "location": loc,
+        "condition": cond,
+        "availability": avail,
+        "tags": tags,
+        "images": imgs,
+        "video": video,
+        "public_meetup": meetup,
+        "door_pickup": pickup,
+        "door_dropoff": dropoff
+    }
+
+
+def _assign_pool_images(fields: List[dict], folder_path: str, images_per_listing: int = 1, min_gap: int = 25, empty_only: bool = True) -> Tuple[List[dict], dict]:
+    """Helper to assign images from a folder to fields using the phased gap algorithm."""
+    if not folder_path or not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+        return fields, {"error": "Folder not found"}
+
+    pool = image_allocator.get_valid_images_from_folder(folder_path)
+    if not pool:
+        return fields, {"error": "No valid images found in folder"}
+
+    targets = []
+    for idx, f in enumerate(fields):
+        has_imgs = bool(f.get("images") and any(str(x).strip() for x in f["images"]))
+        if not empty_only or not has_imgs:
+            targets.append(idx)
+
+    if not targets:
+        return fields, {"message": "All listings already have images", "assigned_count": 0}
+
+    assignments, meta = image_allocator.allocate_images(
+        pool=pool,
+        num_listings=len(targets),
+        images_per_listing=images_per_listing,
+        min_gap=min_gap
+    )
+
+    for sub_idx, orig_idx in enumerate(targets):
+        assigned = assignments.get(sub_idx, [])
+        if assigned:
+            fields[orig_idx]["images"] = assigned
+
+    return fields, meta
+
+
+@app.get("/scan-image-pool")
+def api_scan_image_pool(folder_path: str = Query(...)):
+    """Scans an image pool folder and returns count and sample paths."""
+    folder = folder_path.strip()
+    if not folder or not os.path.exists(folder) or not os.path.isdir(folder):
+        return {"status": "error", "count": 0, "message": "Directory not found"}
+    imgs = image_allocator.get_valid_images_from_folder(folder)
+    return {"status": "success", "count": len(imgs), "sample": imgs[:5]}
+
+
+@app.post("/auto-assign-images")
+def api_auto_assign_images(req: AutoAssignImagesRequest):
+    """Assigns images from an image folder to existing listings in UI."""
+    try:
+        updated_fields, meta = _assign_pool_images(
+            fields=req.listings,
+            folder_path=req.folder_path,
+            images_per_listing=req.images_per_listing,
+            min_gap=req.min_gap,
+            empty_only=req.empty_only
+        )
+        return {"status": "success", "fields": updated_fields, "meta": meta}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/import-csv")
-async def api_import_csv(file: UploadFile = File(...)):
+async def api_import_csv(
+    file: UploadFile = File(...),
+    image_folder: Optional[str] = Form(None),
+    images_per_listing: Optional[int] = Form(1),
+    min_gap: Optional[int] = Form(25)
+):
     try:
         contents = await file.read()
         filename = file.filename.lower()
@@ -555,44 +722,37 @@ async def api_import_csv(file: UploadFile = File(...)):
             df = pd.read_excel(io.BytesIO(contents))
         else:
             import io
-            df = pd.read_csv(io.BytesIO(contents))
+            df = None
+            for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
+                try:
+                    df = pd.read_csv(io.BytesIO(contents), encoding=enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if df is None:
+                df = pd.read_csv(io.BytesIO(contents), encoding="utf-8", errors="replace")
 
         fields = []
         for _, row in df.iterrows():
-            raw_imgs = str(row.get("Images", row.get("images", "")))
-            if raw_imgs.startswith("[") and raw_imgs.endswith("]"):
-                try:
-                    imgs = ast.literal_eval(raw_imgs)
-                except Exception:
-                    imgs = [s.strip() for s in raw_imgs.strip("[]").split(",") if s.strip()]
-            else:
-                imgs = [s.strip() for s in raw_imgs.split("|") if s.strip()] or [s.strip() for s in raw_imgs.split(",") if s.strip()]
+            fields.append(_normalize_csv_row(row.to_dict()))
 
-            raw_tags = str(row.get("Tags", row.get("tags", "")))
-            if raw_tags.startswith("[") and raw_tags.endswith("]"):
-                try:
-                    tags = ast.literal_eval(raw_tags)
-                except Exception:
-                    tags = [s.strip() for s in raw_tags.strip("[]").split(",") if s.strip()]
-            else:
-                tags = [s.strip() for s in raw_tags.split(",") if s.strip()]
+        # If image_folder provided, automatically assign images to listings missing them
+        image_meta = None
+        if image_folder and image_folder.strip() and os.path.isdir(image_folder.strip()):
+            fields, image_meta = _assign_pool_images(
+                fields=fields,
+                folder_path=image_folder.strip(),
+                images_per_listing=images_per_listing or 1,
+                min_gap=min_gap or 25,
+                empty_only=True
+            )
 
-            fields.append({
-                "title": str(row.get("Title", row.get("title", ""))),
-                "description": str(row.get("Description", row.get("description", ""))),
-                "category": str(row.get("Category", row.get("category", "Furniture"))),
-                "price": str(row.get("Price", row.get("price", "85"))),
-                "location": str(row.get("Location", row.get("location", ""))),
-                "condition": str(row.get("Condition", row.get("condition", "New"))),
-                "availability": str(row.get("Availability", row.get("availability", "List as In Stock"))),
-                "tags": tags,
-                "images": imgs,
-                "video": str(row.get("Video", row.get("video", ""))),
-                "public_meetup": 1 if str(row.get("Public meetup", row.get("public_meetup", "0"))) in ["1", "True", "true"] else 0,
-                "door_pickup": 1 if str(row.get("Door pickup", row.get("door_pickup", "0"))) in ["1", "True", "true"] else 0,
-                "door_dropoff": 1 if str(row.get("Door dropoff", row.get("door_dropoff", "1"))) in ["1", "True", "true"] else 0,
-            })
-        return {"status": "success", "count": len(fields), "fields": fields}
+        return {
+            "status": "success",
+            "count": len(fields),
+            "fields": fields,
+            "image_meta": image_meta
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"CSV/Excel parse failed: {str(e)}")
 

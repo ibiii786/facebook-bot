@@ -110,7 +110,7 @@ async function runFailedBot() {
 
 // ── Bot Operations ──────────────────────────────────────────────────────────
 async function runBot() {
-  if (!validate()) return;
+  if (!await validate()) return;
   disableControls();
   setStatus('Running Bot...', 'active');
 
@@ -318,12 +318,34 @@ async function deleteAccountAPI(email) {
 async function importCSVAPI(file) {
   const formData = new FormData();
   formData.append('file', file);
+
+  const folder = (document.getElementById('bulk-image-folder')?.value || localStorage.getItem('fb_bot_image_pool_folder') || '').trim();
+  const imagesPerListing = document.getElementById('bulk-images-per-listing')?.value || '1';
+  const minGap = document.getElementById('bulk-image-gap')?.value || '25';
+  const autoAssign = document.getElementById('bulk-auto-assign-csv') ? document.getElementById('bulk-auto-assign-csv').checked : true;
+
+  if (folder && autoAssign) {
+    formData.append('image_folder', folder);
+    formData.append('images_per_listing', imagesPerListing);
+    formData.append('min_gap', minGap);
+  }
+
   const res = await fetch(`${BASE_URL}/import-csv`, { method: 'POST', body: formData });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || 'CSV Import failed');
   }
   return res.json();
+}
+
+async function scanImagePoolAPI(folderPath) {
+  const res = await fetch(`${BASE_URL}/scan-image-pool?folder_path=${encodeURIComponent(folderPath)}`);
+  if (!res.ok) return { status: 'error', count: 0 };
+  return res.json();
+}
+
+async function autoAssignImagesAPI(payload) {
+  return await apiPost('/auto-assign-images', payload);
 }
 
 async function scanFolderAPI(folderPath) {
