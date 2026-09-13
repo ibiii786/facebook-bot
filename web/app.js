@@ -255,6 +255,38 @@ async function triggerImageBrowse(entryId, imgIndex, btnEl) {
   }
 }
 
+// Called from the "Browse Images" button on CSV-imported cards with no images
+async function browseImagesForCard(entryId) {
+  try {
+    const paths = await browseNativeFiles();
+    if (!paths || paths.length === 0) return;
+
+    const firstInput = document.getElementById(`img-input-${entryId}-0`);
+    if (firstInput) {
+      firstInput.value = paths[0];
+      updateImagePreview(entryId, 0, paths[0]);
+    }
+
+    const entry = entries.find(e => e.id === entryId);
+    for (let i = 1; i < paths.length && entry && entry.imageCount < MAX_IMAGES; i++) {
+      addImageRow(entryId);
+      const newIdx = entry.imageCount - 1;
+      const inp = document.getElementById(`img-input-${entryId}-${newIdx}`);
+      if (inp) { inp.value = paths[i]; updateImagePreview(entryId, newIdx, paths[i]); }
+    }
+
+    // Remove the warning banner once images are added
+    const warn = document.getElementById(`no-images-warn-${entryId}`);
+    if (warn) warn.remove();
+
+    triggerAutoSave();
+  } catch (err) {
+    console.error('browseImagesForCard error:', err);
+  }
+}
+
+
+
 async function triggerVideoBrowse(entryId, btnEl) {
   const origText = btnEl ? btnEl.textContent : 'Browse';
   if (btnEl) { btnEl.textContent = '...'; btnEl.disabled = true; }
@@ -684,10 +716,11 @@ async function getFailedFields() {
 
 // ── Live Multitasking Status Polling & Rendering ────────────────────────────
 let liveStatusPollTimer = null;
+// 3-state: false = never started | 'starting' = bot accepted but threads not yet 'running' | true = confirmed running
 let isBotExecutionActive = false;
 
 function onBotStarted() {
-  isBotExecutionActive = true;
+  isBotExecutionActive = 'starting'; // Grace period — don't trigger completion yet
   const banner = document.getElementById('live-run-banner');
   if (banner) banner.classList.remove('hidden');
   document.querySelectorAll('#btn-stop, .btn-danger').forEach(btn => {
@@ -742,7 +775,7 @@ async function pollAndRenderListingStatus() {
     const data = await resp.json();
     const listings = data.listings || [];
 
-    // Build a map of title -> posted status
+    // Build a map of title -> list of {email, posted} records
     const postedMap = {};
     listings.forEach(item => {
       const key = item.title.trim().toLowerCase();
@@ -764,14 +797,29 @@ async function pollAndRenderListingStatus() {
 
       const matches = postedMap[cardTitle];
       if (matches && matches.length > 0) {
-        const allPosted = matches.every(m => m.posted);
-        const somePosted = matches.some(m => m.posted);
+        const postedItems = matches.filter(m => m.posted);
+        const pendingItems = matches.filter(m => !m.posted);
+        const allPosted = pendingItems.length === 0;
+        const somePosted = postedItems.length > 0;
+
+        // Build tooltip text showing per-account status
+        const lines = matches.map(m => {
+          const icon = m.posted ? '✅' : '⏳';
+          const acc = m.email ? m.email.split('@')[0] : 'Unknown';
+          return `${icon} ${acc}`;
+        });
+        badge.title = lines.join('\n');
+
         if (allPosted) {
-          badge.textContent = '✅ Posted';
+          if (postedItems.length === 1 && postedItems[0].email) {
+            const shortEmail = postedItems[0].email.split('@')[0];
+            badge.textContent = `✅ ${shortEmail}`;
+          } else {
+            badge.textContent = `✅ Posted (${postedItems.length})`;
+          }
           badge.className = 'listing-status-badge badge-posted';
         } else if (somePosted) {
-          const postedCount = matches.filter(m => m.posted).length;
-          badge.textContent = `⏳ ${postedCount}/${matches.length} Posted`;
+          badge.textContent = `⏳ ${postedItems.length}/${matches.length} Accounts`;
           badge.className = 'listing-status-badge badge-partial';
         } else {
           badge.textContent = '⏳ Pending';
@@ -792,13 +840,18 @@ async function pollAndRenderBotStatus() {
   const state = await getBotLiveStatus();
   if (!state) return;
 
-  // 1. Detect if bot execution just finished
+  // 1. Detect if bot execution just finished (3-state guard prevents false completion on page load/startup)
   if (state.status === 'running') {
-    isBotExecutionActive = true;
-  } else if (state.status === 'idle' && isBotExecutionActive) {
+    isBotExecutionActive = true; // Confirmed running
+  } else if (state.status === 'idle' && isBotExecutionActive === true) {
+    // Bot was confirmed running and is now idle — genuine completion
     isBotExecutionActive = false;
     onBotComplete(state.failed || {});
+  } else if (state.status === 'idle' && isBotExecutionActive === 'starting') {
+    // Bot was just submitted but threads haven't spun up yet — wait, don't trigger completion
+    // (stays in 'starting' until we see 'running')
   }
+  // if isBotExecutionActive === false: page load idle state — do nothing
 
   // 2. Update Monitor Stats Bar
   const statStatus = document.getElementById('stat-bot-status');
@@ -1377,12 +1430,16 @@ async function handleCSVFileSelected(event) {
       return;
     }
 
+    const missingImages = [];
+
     res.fields.forEach(f => {
       addField();
       const entry = entries[entries.length - 1];
       const id = entry.id;
 
-      if (f.images && f.images.length > 0) {
+      const hasImages = f.images && f.images.length > 0 && f.images.some(img => img && img.trim());
+
+      if (hasImages) {
         const firstInput = document.getElementById(`img-input-${id}-0`);
         if (firstInput) {
           firstInput.value = f.images[0] || '';
@@ -1395,6 +1452,22 @@ async function handleCSVFileSelected(event) {
             input.value = f.images[i];
             updateImagePreview(id, i, f.images[i]);
           }
+        }
+      } else {
+        // No images — add a warning banner inside the card
+        missingImages.push(id);
+        const imagesContainer = document.getElementById(`images-container-${id}`);
+        if (imagesContainer) {
+          const warn = document.createElement('div');
+          warn.id = `no-images-warn-${id}`;
+          warn.style.cssText = 'background:#ff6b2b22;border:1.5px solid #ff6b2b;border-radius:8px;padding:10px 14px;margin:6px 0;display:flex;align-items:center;gap:10px;';
+          warn.innerHTML = `
+            <span style="font-size:18px;">⚠️</span>
+            <span style="color:#ff9a5c;font-size:13px;font-weight:600;">No images — this listing will be skipped unless you add images.</span>
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:12px;padding:5px 12px;white-space:nowrap;"
+              onclick="browseImagesForCard(${id})">📁 Browse Images</button>
+          `;
+          imagesContainer.insertBefore(warn, imagesContainer.firstChild);
         }
       }
 
@@ -1414,9 +1487,15 @@ async function handleCSVFileSelected(event) {
     });
 
     triggerAutoSave();
-    setStatus(`Imported ${res.fields.length} listings from ${file.name}`, 'success');
+
+    if (missingImages.length > 0) {
+      setStatus(`Imported ${res.fields.length} listings — ⚠️ ${missingImages.length} need images!`, 'warning');
+    } else {
+      setStatus(`Imported ${res.fields.length} listings from ${file.name}`, 'success');
+    }
   } catch (err) {
     alert(`CSV Import Failed: ${err.message}`);
+
     setStatus('Ready');
   }
 }

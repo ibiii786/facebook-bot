@@ -495,18 +495,56 @@ def go_to_items(
                 print(f"Category selection fallback: {e}")
  
         else:
-            category_element = driver.find_element("xpath", "//label[contains(normalize-space(.), 'Category') and @role='combobox']")
+            # Canada / other — multi-strategy fallback, same as UK
+            category_element = None
+            cat_strategies = [
+                "//label[contains(normalize-space(.), 'Category')]//input",
+                "//input[contains(@aria-label, 'Category')]",
+                "//label[contains(normalize-space(.), 'Category') and @role='combobox']",
+                "/html/body/div[1]/div/div[1]/div/div[3]/div/div/div[1]/div[1]/div[1]/div/div[3]/div[1]/div[2]/div/div/div[7]/div/div/div/div/div/div/div/label/div[1]/input",
+            ]
+            for xp in cat_strategies:
+                try:
+                    category_element = driver.find_element("xpath", xp)
+                    print(f"Category element found with: {xp}")
+                    break
+                except Exception:
+                    continue
+
+            if category_element is None:
+                raise Exception("Could not locate Category input field after trying all strategies.")
+
             category_element.click()
-            time.sleep(random.randint(5,7))
+            category_element.send_keys(category)
+            time.sleep(random.randint(5, 7))
             print("Looking for category options")
-            xpath = f"//div[@role='button' and translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = '{category.lower()}']"
-            from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.support import expected_conditions as EC
-            element = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable(("xpath", xpath))
-            )
-            print(element, "Button to be selected")
-            element.click()
+
+            # Try clicking the exact matching option in the dropdown
+            selected = False
+            try:
+                from selenium.webdriver.support.ui import WebDriverWait
+                from selenium.webdriver.support import expected_conditions as EC
+                # Try button-role match first (older Facebook UI)
+                xpath_btn = f"//div[@role='button' and translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') = '{category.lower()}']"
+                element = WebDriverWait(driver, 8).until(
+                    EC.element_to_be_clickable(("xpath", xpath_btn))
+                )
+                element.click()
+                selected = True
+                print("Category selected via button-role match")
+            except Exception:
+                pass
+
+            if not selected:
+                # Fall through to listbox first item (same as UK)
+                try:
+                    select_category_box = driver.find_element("xpath", "//ul[@role='listbox'] | //div[@role='listbox']")
+                    category_list_items = select_category_box.find_elements("xpath", ".//li | .//div[@role='option']")
+                    if category_list_items:
+                        category_list_items[0].click()
+                        print("Category selected via listbox first item")
+                except Exception as e:
+                    print(f"Category listbox fallback also failed: {e}")
         for box in outside_box:
             try:
                 driver.execute_script("arguments[0].scrollTop += 500;", box)

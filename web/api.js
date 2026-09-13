@@ -113,10 +113,6 @@ async function runBot() {
   if (!validate()) return;
   disableControls();
   setStatus('Running Bot...', 'active');
-  
-  if (typeof onBotStarted === 'function') {
-    onBotStarted();
-  }
 
   try {
     const payload = {
@@ -126,6 +122,12 @@ async function runBot() {
       marketplace:        getMarketplace()
     };
     await apiPost('/run-bot', payload);
+    // Only activate execution tracking AFTER the server confirmed it accepted the run.
+    // Also: the bot may still be 'idle' in the first few polls while threads spin up.
+    // Set a flag to say "we know we just started — wait a bit before enabling completion detection."
+    if (typeof onBotStarted === 'function') {
+      onBotStarted();
+    }
   } catch (err) {
     alert(`Execution Error: ${err.message}`);
     enableControls();
@@ -134,6 +136,7 @@ async function runBot() {
     }
   }
 }
+
 
 // Legacy alias - both actions now use unified interleaved distribution
 async function runDistributeBot() {

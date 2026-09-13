@@ -306,11 +306,25 @@ def api_listing_status():
     except Exception as e:
         return {"listings": [], "error": str(e)}
 
+@app.get("/image-usage")
+def api_image_usage():
+    """Returns image duplicate tracking log mapping image paths to accounts."""
+    try:
+        from Open_fb import load_image_usage_log
+        return load_image_usage_log()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/run-bot")
 def api_run_bot(req: BotRunRequest):
     entries_data = [item.dict() for item in req.listings]
     global current_background_tasks, stop_event
     stop_event.clear()
+
+    from Open_fb import LIVE_BOT_STATE, _status_lock
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "starting"
+        LIVE_BOT_STATE["failed"] = {}
 
     t = threading.Thread(
         target=run_bot_task,
@@ -332,6 +346,11 @@ def api_distribute_bot(req: BotRunRequest):
     entries_data = [item.dict() for item in req.listings]
     global current_background_tasks, stop_event
     stop_event.clear()
+
+    from Open_fb import LIVE_BOT_STATE, _status_lock
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "starting"
+        LIVE_BOT_STATE["failed"] = {}
 
     t = threading.Thread(
         target=run_distribute_task,
