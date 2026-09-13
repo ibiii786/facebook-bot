@@ -1575,13 +1575,17 @@ async function loadSessionOnStartup() {
     const raw = localStorage.getItem('fb_bot_session_state');
     if (raw) {
       const data = JSON.parse(raw);
-      restored = restoreFullSession(data);
+      if (data && Array.isArray(data.entries) && data.entries.length > 0) {
+        restored = restoreFullSession(data);
+      } else if (data) {
+        restoreFullSession(data);
+      }
     }
   } catch (e) {
     console.warn('LocalStorage load failed:', e);
   }
 
-  // 2. If localStorage had nothing, try server backup disk state
+  // 2. If no listings were restored from localStorage, load server backup disk state (session_state.json)
   if (!restored) {
     try {
       if (typeof apiGet === 'function') {
@@ -1593,6 +1597,8 @@ async function loadSessionOnStartup() {
     } catch (e) {
       console.warn('Server session load failed:', e);
     }
+  }
+
   // 3. Fallback check for persisted image pool folder
   const savedPool = localStorage.getItem('fb_bot_image_pool_folder');
   if (savedPool && document.getElementById('bulk-image-folder')) {
