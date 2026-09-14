@@ -32,9 +32,44 @@ CSV_PATH = "emails.csv"
 saved_states_file = "saved_states.csv"
 FLAGGED_ACCOUNTS_FILE = "flagged_accounts.json"
 IMAGE_USAGE_LOG_FILE = "image_usage_log.json"
+COMPLETED_LOG_FILE = "completed_log.json"  # Permanent record — never deleted
 
 _flag_lock = threading.Lock()
 _image_usage_lock = threading.Lock()
+_completed_log_lock = threading.Lock()
+
+
+def load_completed_log() -> set:
+    """Load the set of unique_names (title||||email) that have been successfully posted."""
+    with _completed_log_lock:
+        if not os.path.exists(COMPLETED_LOG_FILE):
+            return set()
+        try:
+            with open(COMPLETED_LOG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return set(data.get("completed", []))
+        except Exception:
+            return set()
+
+
+def record_completion(title: str, email: str):
+    """Permanently record a successfully posted listing. Survives server restarts."""
+    with _completed_log_lock:
+        data = {"completed": []}
+        if os.path.exists(COMPLETED_LOG_FILE):
+            try:
+                with open(COMPLETED_LOG_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {"completed": []}
+        unique_name = title + "||||" + str(email)
+        if unique_name not in data["completed"]:
+            data["completed"].append(unique_name)
+        try:
+            with open(COMPLETED_LOG_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error saving completed log: {e}")
 
 
 def load_image_usage_log() -> Dict[str, list]:
@@ -514,6 +549,7 @@ class AccountLifecycleWorker(threading.Thread):
                         listing_succeeded = True
                         log_live_message(f"✅ [{display_id}] Listing '{post_title}' published successfully!")
                         set_file_status(post_title, email)
+                        record_completion(post_title, email)  # Permanent log — never wiped
                         # Record image usage for future deduplication
                         record_image_usage(images, email)
                         with _status_lock:
@@ -621,9 +657,9 @@ def run_orchestrator(
         log_live_message("⚠️ No accounts found in emails.csv. Please add accounts first.")
         return {}
 
-    # ── Load existing completion state (do NOT delete saved_states.csv) ──
-    # Build a set of already-completed (title, email) pairs so we can skip them.
-    already_done: set = set()
+    # ── Load existing completion state from BOTH saved_states.csv AND completed_log.json ──
+    # completed_log.json is the permanent record that survives even if saved_states.csv is wiped.
+    already_done: set = load_completed_log()
     CSV_COLUMNS = [
         "Name", "Status", "Title", "Price", "Category", "Condition", "Description",
         "Availability", "Product_Tags", "Images", "Video", "public_meetup",
@@ -637,10 +673,9 @@ def run_orchestrator(
                 if status_val in ("true", "1", "yes"):
                     already_done.add(str(row.get("Name", "")))
         except Exception:
-            prev_df = pd.DataFrame(columns=CSV_COLUMNS)
+            pass
     else:
-        prev_df = pd.DataFrame(columns=CSV_COLUMNS)
-        prev_df.to_csv(saved_states_file, index=False)
+        pd.DataFrame(columns=CSV_COLUMNS).to_csv(saved_states_file, index=False)
 
     if already_done:
         log_live_message(f"⏭️ Resuming session: {len(already_done)} listing(s) already completed — will be skipped.")
