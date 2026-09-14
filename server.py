@@ -288,6 +288,7 @@ def api_listing_status():
     if not os.path.exists(csv_path):
         return {"listings": []}
     try:
+        from account_names import get_account_fb_name
         df = pd.read_csv(csv_path, dtype=str).fillna("")
         results = []
         for _, row in df.iterrows():
@@ -299,9 +300,11 @@ def api_listing_status():
             if "||||" in name_raw:
                 parts = name_raw.split("||||", 1)
                 email = parts[1] if len(parts) > 1 else ""
+            fb_name = get_account_fb_name(email) if email else ""
             results.append({
                 "title": title,
                 "email": email,
+                "fb_name": fb_name,
                 "posted": is_posted
             })
         return {"listings": results}
@@ -437,12 +440,14 @@ class LoginSessionRequest(BaseModel):
 @app.get("/accounts")
 def get_accounts():
     from login_profile import load_emails_df, is_account_authenticated
+    from account_names import get_account_fb_name
     df = load_emails_df()
     accounts = []
     for row in df.to_dict(orient="records"):
         email = row.get("email", "")
         phone = row.get("phone", "")
         row["authenticated"] = is_account_authenticated(email, phone)
+        row["fb_name"] = get_account_fb_name(email or phone)
         accounts.append(row)
     return {"accounts": accounts}
 

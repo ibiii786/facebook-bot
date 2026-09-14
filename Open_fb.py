@@ -197,11 +197,14 @@ def log_live_message(msg: str):
             LIVE_BOT_STATE["logs"].pop(0)
 
 
-def update_account_state(email: str, state: str, details: str = "", stage: str = "", elapsed_mins: float = 0.0, cooldown_remaining: int = 0):
+def update_account_state(email: str, state: str, details: str = "", stage: str = "", elapsed_mins: float = 0.0, cooldown_remaining: int = 0, fb_name: str = ""):
     with _status_lock:
+        from account_names import get_account_fb_name
+        resolved_name = fb_name or get_account_fb_name(email)
         if email not in LIVE_BOT_STATE["accounts"]:
             LIVE_BOT_STATE["accounts"][email] = {
                 "email": email,
+                "fb_name": resolved_name,
                 "state": state,
                 "details": details,
                 "stage": stage,
@@ -214,6 +217,8 @@ def update_account_state(email: str, state: str, details: str = "", stage: str =
             acc = LIVE_BOT_STATE["accounts"][email]
             acc["state"] = state
             acc["details"] = details
+            if resolved_name:
+                acc["fb_name"] = resolved_name
             if stage:
                 acc["stage"] = stage
             if elapsed_mins is not None:
@@ -300,10 +305,13 @@ class AccountLifecycleWorker(threading.Thread):
         self.semaphore = semaphore
         self.max_review_timeout = max_review_timeout
         self.failed_listings = []
+        from account_names import get_account_fb_name
+        self.fb_name = get_account_fb_name(self.email or self.phone)
 
     def run(self):
         global _global_last_post_time
         email = self.email
+        display_id = self.fb_name or email
 
 
         # ── 0. Check if Account is Already Flagged ──
@@ -451,6 +459,19 @@ class AccountLifecycleWorker(threading.Thread):
 
                     time.sleep(5)
 
+                    # ── Extract and Persist Facebook Account Profile Name ──
+                    try:
+                        from account_names import extract_fb_name_from_driver, save_account_fb_name
+                        scraped_name = extract_fb_name_from_driver(driver)
+                        if scraped_name:
+                            save_account_fb_name(email, scraped_name)
+                            if self.phone:
+                                save_account_fb_name(self.phone, scraped_name)
+                            self.fb_name = scraped_name
+                    except Exception:
+                        pass
+                    display_id = self.fb_name or email
+
                     (img_entries, title_entry, description_entry, category_entry, location_entry,
                      tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
 
@@ -468,9 +489,9 @@ class AccountLifecycleWorker(threading.Thread):
                     if attempt == 1:  # Only warn on first attempt, not retries
                         img_warnings = check_image_usage(images, email)
                         for w in img_warnings:
-                            log_live_message(f"⚠️ [{email}] {w} — proceeding but Facebook may detect duplicate.")
+                            log_live_message(f"⚠️ [{display_id}] {w} — proceeding but Facebook may detect duplicate.")
 
-                    update_account_state(email, state="POSTING", details=f"Posting '{post_title}' (attempt {attempt}/{MAX_RETRIES})...")
+                    update_account_state(email, state="POSTING", details=f"Posting '{post_title}' (attempt {attempt}/{MAX_RETRIES})...", fb_name=self.fb_name)
                     result = go_to_items(
                         driver=driver,
                         title=post_title,
@@ -491,19 +512,19 @@ class AccountLifecycleWorker(threading.Thread):
 
                     if result:
                         listing_succeeded = True
-                        log_live_message(f"✅ [{email}] Listing '{post_title}' published successfully!")
+                        log_live_message(f"✅ [{display_id}] Listing '{post_title}' published successfully!")
                         set_file_status(post_title, email)
                         # Record image usage for future deduplication
                         record_image_usage(images, email)
                         with _status_lock:
                             LIVE_BOT_STATE["completed_listings"] += 1
-                        update_account_state(email, state="SIMULATING", details="Post-listing human simulation...")
+                        update_account_state(email, state="SIMULATING", details="Post-listing human simulation...", fb_name=self.fb_name)
 
                         # ── 4. Post-Listing Randomized Human Simulation ──
                         simulate_random_human_activity(driver, self.stop_event)
-                        update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'")
+                        update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'", fb_name=self.fb_name)
                     else:
-                        log_live_message(f"❌ [{email}] go_to_items returned False for '{post_title}' (attempt {attempt}/{MAX_RETRIES}).")
+                        log_live_message(f"❌ [{display_id}] go_to_items returned False for '{post_title}' (attempt {attempt}/{MAX_RETRIES}).")
                         if attempt < MAX_RETRIES:
                             log_live_message(f"⏳ [{email}] Waiting 15s before retry...")
                             update_account_state(email, state="COOLDOWN", details=f"Retry cooldown before attempt {attempt + 1}...")

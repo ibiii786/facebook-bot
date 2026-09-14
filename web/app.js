@@ -980,20 +980,25 @@ async function pollAndRenderListingStatus() {
         const allPosted = pendingItems.length === 0;
         const somePosted = postedItems.length > 0;
 
-        // Build tooltip text showing per-account status
+        // Build tooltip text showing per-account status with Facebook Profile Names
         const lines = matches.map(m => {
           const icon = m.posted ? '✅' : '⏳';
-          const acc = m.email ? m.email.split('@')[0] : 'Unknown';
-          return `${icon} ${acc}`;
+          const accName = m.fb_name || (m.email ? m.email.split('@')[0] : 'Unknown');
+          return `${icon} ${accName}`;
         });
         badge.title = lines.join('\n');
 
         if (allPosted) {
-          if (postedItems.length === 1 && postedItems[0].email) {
-            const shortEmail = postedItems[0].email.split('@')[0];
-            badge.textContent = `✅ ${shortEmail}`;
+          if (postedItems.length === 1) {
+            const displayName = postedItems[0].fb_name || (postedItems[0].email ? postedItems[0].email.split('@')[0] : 'Done');
+            badge.textContent = `✅ ${displayName}`;
           } else {
-            badge.textContent = `✅ Posted (${postedItems.length})`;
+            const names = postedItems.map(p => p.fb_name || (p.email ? p.email.split('@')[0] : 'Done'));
+            if (names.length <= 2) {
+              badge.textContent = `✅ ${names.join(' & ')}`;
+            } else {
+              badge.textContent = `✅ Posted (${postedItems.length})`;
+            }
           }
           badge.className = 'listing-status-badge badge-posted';
         } else if (somePosted) {
@@ -1099,9 +1104,17 @@ async function pollAndRenderBotStatus() {
           ? '<span class="browser-open-tag">🌐 Browser Open</span>'
           : '<span style="color:var(--text-muted);">💤 Browser Closed</span>';
 
+        const displayName = acc.fb_name || email;
+        const emailSub = (acc.fb_name && acc.fb_name !== email)
+          ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px;">${email}</div>`
+          : '';
+
         card.innerHTML = `
           <div class="account-card-header">
-            <span class="account-card-email">${email}</span>
+            <div>
+              <span class="account-card-email">${displayName}</span>
+              ${emailSub}
+            </div>
             <span class="badge-chip ${chipClass}">${chipLabel}</span>
           </div>
           <div class="account-card-details">${acc.details || 'Processing...'}</div>
@@ -1226,9 +1239,11 @@ async function loadAccountsModal() {
           ? '<span style="color:#4caf50;font-weight:bold;margin-left:6px;">🟢 Authenticated</span>'
           : '<span style="color:#f44336;font-weight:bold;margin-left:6px;">🔴 Not Initialized</span>';
 
+        const displayName = acc.fb_name ? `<strong>${acc.fb_name}</strong> <span style="font-size:12px;color:var(--text-muted);font-weight:normal;">(${acc.email})</span>` : `<strong>${acc.email}</strong>`;
+
         const info = document.createElement('div');
         info.className = 'saved-item-info';
-        info.innerHTML = `<div><strong>${acc.email}</strong> ${statusBadge}</div>
+        info.innerHTML = `<div>${displayName} ${statusBadge}</div>
                           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                             ${acc.phone ? '📞 ' + acc.phone + ' ' : ''} ${acc.proxy ? '🌐 Proxy: ' + acc.proxy : ''}
                           </div>`;
