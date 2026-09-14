@@ -621,18 +621,29 @@ def run_orchestrator(
         log_live_message("⚠️ No accounts found in emails.csv. Please add accounts first.")
         return {}
 
-    # Initialize CSV saved_states
-    if os.path.exists(saved_states_file):
-        try:
-            os.remove(saved_states_file)
-        except Exception:
-            pass
-
-    pd.DataFrame(columns=[
+    # ── Load existing completion state (do NOT delete saved_states.csv) ──
+    # Build a set of already-completed (title, email) pairs so we can skip them.
+    already_done: set = set()
+    CSV_COLUMNS = [
         "Name", "Status", "Title", "Price", "Category", "Condition", "Description",
         "Availability", "Product_Tags", "Images", "Video", "public_meetup",
         "door_dropoff", "door_meetup", "Location", "Market_Location"
-    ]).to_csv(saved_states_file, index=False)
+    ]
+    if os.path.exists(saved_states_file):
+        try:
+            prev_df = pd.read_csv(saved_states_file, dtype=str).fillna("")
+            for _, row in prev_df.iterrows():
+                status_val = str(row.get("Status", "")).strip().lower()
+                if status_val in ("true", "1", "yes"):
+                    already_done.add(str(row.get("Name", "")))
+        except Exception:
+            prev_df = pd.DataFrame(columns=CSV_COLUMNS)
+    else:
+        prev_df = pd.DataFrame(columns=CSV_COLUMNS)
+        prev_df.to_csv(saved_states_file, index=False)
+
+    if already_done:
+        log_live_message(f"⏭️ Resuming session: {len(already_done)} listing(s) already completed — will be skipped.")
 
     # Distribute entries among accounts via Interleaved Round-Robin:
     # Account 0 gets listings [0, N, 2N, ...] -> Listing 1, Listing 3, Listing 5...
@@ -645,11 +656,37 @@ def run_orchestrator(
         assigned_buckets[idx % n_accounts].append(entry)
     assignments = list(zip(accounts, assigned_buckets))
 
-    # Populate saved_states files
+    # Populate saved_states — only add rows for listings NOT already in the CSV
+    existing_names: set = set()
+    try:
+        existing_df = pd.read_csv(saved_states_file, dtype=str).fillna("")
+        existing_names = set(existing_df["Name"].tolist())
+    except Exception:
+        pass
+
     for account, assigned in assignments:
         for entry in assigned:
             loc = entry[4].get() if len(entry) > 4 else ""
-            make_files(entry, account[0], loc, marketplace_location)
+            title = entry[1].get() if len(entry) > 1 else ""
+            unique_name = title + '||||' + str(account[0])
+            if unique_name not in existing_names:
+                make_files(entry, account[0], loc, marketplace_location)
+                existing_names.add(unique_name)
+
+    # Filter each bucket: remove entries already successfully completed for this account
+    filtered_assignments = []
+    for account, assigned in assignments:
+        email = account[0]
+        filtered = []
+        for entry in assigned:
+            title = entry[1].get() if len(entry) > 1 else ""
+            unique_name = title + '||||' + str(email)
+            if unique_name in already_done:
+                log_live_message(f"⏭️ [{email}] Skipping '{title}' — already posted successfully.")
+            else:
+                filtered.append(entry)
+        filtered_assignments.append((account, filtered))
+    assignments = filtered_assignments
 
     # Initialize Live Status
     with _status_lock:
