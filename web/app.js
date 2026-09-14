@@ -533,6 +533,9 @@ function addField() {
     <div class="card-header">
       <h3 id="card-title-${id}">Product Listing #${entries.length}</h3>
       <span id="listing-status-badge-${id}" class="listing-status-badge" style="display:none;"></span>
+      <span id="mark-done-wrap-${id}" style="display:none;">
+        <button class="btn" style="padding:3px 8px;font-size:11px;background:var(--accent-green,#22c55e);color:#fff;border-radius:6px;" onclick="markListingDone(${id})">✔ Mark as Done</button>
+      </span>
       <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="removeField(${id})">❌ Remove</button>
     </div>
     <div class="card-body">
@@ -965,11 +968,13 @@ async function pollAndRenderListingStatus() {
     entries.forEach(e => {
       const titleInput = document.getElementById(`title-${e.id}`);
       const badge = document.getElementById(`listing-status-badge-${e.id}`);
+      const markWrap = document.getElementById(`mark-done-wrap-${e.id}`);
       if (!titleInput || !badge) return;
 
       const cardTitle = titleInput.value.trim().toLowerCase();
       if (!cardTitle) {
         badge.style.display = 'none';
+        if (markWrap) markWrap.style.display = 'none';
         return;
       }
 
@@ -1001,20 +1006,68 @@ async function pollAndRenderListingStatus() {
             }
           }
           badge.className = 'listing-status-badge badge-posted';
+          if (markWrap) markWrap.style.display = 'none'; // Already done — hide button
         } else if (somePosted) {
           badge.textContent = `⏳ ${postedItems.length}/${matches.length} Accounts`;
           badge.className = 'listing-status-badge badge-partial';
+          // Show mark-done for the pending accounts
+          if (markWrap) {
+            markWrap.style.display = 'inline-block';
+            markWrap.dataset.title = titleInput.value.trim();
+            markWrap.dataset.emails = pendingItems.map(p => p.email).join(',');
+          }
         } else {
           badge.textContent = '⏳ Pending';
           badge.className = 'listing-status-badge badge-pending';
+          // Show mark-done button — all pending for all accounts
+          if (markWrap) {
+            markWrap.style.display = 'inline-block';
+            markWrap.dataset.title = titleInput.value.trim();
+            markWrap.dataset.emails = matches.map(m => m.email).join(',');
+          }
         }
         badge.style.display = 'inline-block';
       } else {
         badge.style.display = 'none';
+        if (markWrap) markWrap.style.display = 'none';
       }
     });
   } catch (err) {
     // Silently fail — this is a background poll
+  }
+}
+
+async function markListingDone(entryId) {
+  const markWrap = document.getElementById(`mark-done-wrap-${entryId}`);
+  const badge = document.getElementById(`listing-status-badge-${entryId}`);
+  const titleInput = document.getElementById(`title-${entryId}`);
+  if (!markWrap || !titleInput) return;
+
+  const title = markWrap.dataset.title || titleInput.value.trim();
+  const emails = (markWrap.dataset.emails || '').split(',').map(e => e.trim()).filter(Boolean);
+
+  if (!title || emails.length === 0) {
+    alert('No account info found. Run the bot first so listings appear in the status panel.');
+    return;
+  }
+
+  const confirmed = confirm(`Mark "${title}" as already posted on ${emails.length} account(s)?\nThe bot will skip this listing on the next run.`);
+  if (!confirmed) return;
+
+  try {
+    for (const email of emails) {
+      await markDoneAPI(title, email);
+    }
+    // Update badge immediately
+    if (badge) {
+      badge.textContent = '✅ Marked Done';
+      badge.className = 'listing-status-badge badge-posted';
+      badge.style.display = 'inline-block';
+    }
+    markWrap.style.display = 'none';
+    setStatus(`Marked "${title}" as done — bot will skip it next run`, 'success');
+  } catch (err) {
+    alert(`Failed to mark as done: ${err.message}`);
   }
 }
 

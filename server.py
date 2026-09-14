@@ -283,8 +283,21 @@ def api_bot_status():
 
 @app.get("/listing-status")
 def api_listing_status():
-    """Returns posted/pending status for each listing from saved_states.csv."""
+    """Returns posted/pending status for each listing.
+    Checks both saved_states.csv AND completed_log.json (permanent record)."""
     csv_path = "saved_states.csv"
+    completed_log_path = "completed_log.json"
+
+    # Load permanent completion log
+    completed_names: set = set()
+    if os.path.exists(completed_log_path):
+        try:
+            with open(completed_log_path, "r", encoding="utf-8") as f:
+                log_data = json.load(f)
+            completed_names = set(log_data.get("completed", []))
+        except Exception:
+            completed_names = set()
+
     if not os.path.exists(csv_path):
         return {"listings": []}
     try:
@@ -295,7 +308,10 @@ def api_listing_status():
             name_raw = row.get("Name", "")
             title = row.get("Title", "")
             status_val = str(row.get("Status", "")).strip().lower()
-            is_posted = status_val in ("true", "1", "yes")
+            csv_posted = status_val in ("true", "1", "yes")
+            # Also check completed_log.json
+            log_posted = name_raw in completed_names
+            is_posted = csv_posted or log_posted
             email = ""
             if "||||" in name_raw:
                 parts = name_raw.split("||||", 1)
@@ -310,6 +326,45 @@ def api_listing_status():
         return {"listings": results}
     except Exception as e:
         return {"listings": [], "error": str(e)}
+
+
+class MarkDoneRequest(BaseModel):
+    title: str
+    email: str
+
+
+@app.post("/mark-done")
+def api_mark_done(req: MarkDoneRequest):
+    """Manually mark a listing as already posted. Writes to both completed_log.json and saved_states.csv."""
+    title = req.title.strip()
+    email = req.email.strip()
+    unique_name = title + "||||" + email
+    completed_log_path = "completed_log.json"
+
+    # Write to permanent completed_log.json
+    try:
+        data = {"completed": []}
+        if os.path.exists(completed_log_path):
+            with open(completed_log_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        if unique_name not in data["completed"]:
+            data["completed"].append(unique_name)
+        with open(completed_log_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write completed_log.json: {e}")
+
+    # Also update saved_states.csv if the entry exists there
+    csv_path = "saved_states.csv"
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path, dtype=str).fillna("")
+            df.loc[df["Name"] == unique_name, "Status"] = "True"
+            df.to_csv(csv_path, index=False)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": f"Marked '{title}' as done for {email}"}
 
 @app.get("/image-usage")
 def api_image_usage():

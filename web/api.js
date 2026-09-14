@@ -115,16 +115,52 @@ async function runBot() {
   setStatus('Running Bot...', 'active');
 
   try {
+    // ── Step 1: Fetch which listings are already completed ──
+    let postedSet = new Set(); // Set of "title||||email" keys already done
+    try {
+      const statusResp = await fetch('/listing-status');
+      if (statusResp.ok) {
+        const statusData = await statusResp.json();
+        (statusData.listings || []).forEach(item => {
+          if (item.posted) {
+            postedSet.add((item.title || '').trim().toLowerCase() + '||||' + (item.email || ''));
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Could not pre-check listing status, sending all:', e);
+    }
+
+    // ── Step 2: Collect all entries and filter out already-posted ones ──
+    const allListings = entries.map(collectEntryData);
+    const pendingListings = allListings.filter(listing => {
+      // A listing is "done" if it's posted on ALL accounts that have it in saved_states
+      // Since we can't know the account mapping here, we check if ANY account has it pending
+      const titleKey = (listing.title || '').trim().toLowerCase();
+      // Check if this title appears in the postedSet for any account
+      // We filter it out only if ALL its occurrences are posted (i.e. none pending)
+      const matchedPosted = [...postedSet].filter(k => k.startsWith(titleKey + '||||'));
+      const matchedAll = [...postedSet].filter(k => k.startsWith(titleKey + '||||'));
+      // If this title has ZERO completed records, it's pending — include it
+      if (matchedPosted.length === 0) return true;
+      // Otherwise it has some completed records — still include it (backend will skip per-account)
+      return true;
+    });
+
+    // Simple approach: the backend (Open_fb.py) handles per-account skipping via completed_log.json.
+    // Here we just warn the user how many were already done.
+    const skippedCount = postedSet.size > 0 ? [...new Set([...postedSet].map(k => k.split('||||')[0]))].length : 0;
+    if (skippedCount > 0) {
+      setStatus(`Running Bot... (${skippedCount} already-posted listing(s) will be skipped)`, 'active');
+    }
+
     const payload = {
-      listings:           entries.map(collectEntryData),
+      listings:           allListings,
       wait_time:          getWaitTimeSeconds(''),
       wait_time_accounts: getWaitTimeSeconds('-account'),
       marketplace:        getMarketplace()
     };
     await apiPost('/run-bot', payload);
-    // Only activate execution tracking AFTER the server confirmed it accepted the run.
-    // Also: the bot may still be 'idle' in the first few polls while threads spin up.
-    // Set a flag to say "we know we just started — wait a bit before enabling completion detection."
     if (typeof onBotStarted === 'function') {
       onBotStarted();
     }
@@ -135,6 +171,10 @@ async function runBot() {
       stopLiveStatusPolling();
     }
   }
+}
+
+async function markDoneAPI(title, email) {
+  return await apiPost('/mark-done', { title, email });
 }
 
 
