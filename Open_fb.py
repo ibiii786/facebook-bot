@@ -23,6 +23,8 @@ from Automation import (
     simulate_random_human_activity,
     check_account_health_and_previous_listing
 )
+from ix_detector import ix_manager
+from intervention_detector import intervention_detector
 
 from login_profile import email_to_safe
 from path import move_to_path
@@ -197,14 +199,15 @@ ACTIVE_DRIVERS: List[webdriver.Chrome] = []
 
 
 def stop_all_active_drivers():
-    """Immediately terminates all open Chrome browser instances launched by the orchestrator."""
+    """Immediately terminates non-ixBrowser Chrome instances. Leaves ixBrowser profiles open."""
     with active_drivers_lock:
-        log_live_message(f"⏹ Force stopping {len(ACTIVE_DRIVERS)} active Chrome instances...")
+        log_live_message(f"⏹ Releasing active driver instances...")
         for driver in list(ACTIVE_DRIVERS):
-            try:
-                driver.quit()
-            except Exception:
-                pass
+            if not getattr(driver, "is_ix", False):
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
         ACTIVE_DRIVERS.clear()
 
 
@@ -324,7 +327,8 @@ class AccountLifecycleWorker(threading.Thread):
         wait_for_review: bool = False,
         stop_event: Optional[threading.Event] = None,
         semaphore: Optional[threading.Semaphore] = None,
-        max_review_timeout: int = 1800
+        max_review_timeout: int = 1800,
+        ix_profile: Optional[Dict[str, Any]] = None
     ):
         super().__init__(daemon=True)
         self.email = account_tuple[0]
@@ -339,6 +343,7 @@ class AccountLifecycleWorker(threading.Thread):
         self.stop_event = stop_event or threading.Event()
         self.semaphore = semaphore
         self.max_review_timeout = max_review_timeout
+        self.ix_profile = ix_profile
         self.failed_listings = []
         from account_names import get_account_fb_name
         self.fb_name = get_account_fb_name(self.email or self.phone)
@@ -347,7 +352,6 @@ class AccountLifecycleWorker(threading.Thread):
         global _global_last_post_time
         email = self.email
         display_id = self.fb_name or email
-
 
         # ── 0. Check if Account is Already Flagged ──
         flagged_map = load_flagged_accounts()
@@ -361,273 +365,267 @@ class AccountLifecycleWorker(threading.Thread):
         log_live_message(f"🚀 Worker started for account: {email} ({len(self.assigned_entries)} listings assigned)")
         update_account_state(email, state="QUEUED", details=f"Queued ({len(self.assigned_entries)} listings)")
 
-        for idx, entry in enumerate(self.assigned_entries):
-            if self.stop_event.is_set():
-                log_live_message(f"🛑 Worker stopped for {email}")
-                update_account_state(email, state="STOPPED", details="Halted by user")
-                return
-
-            loc = self.location_list[idx % len(self.location_list)] if self.location_list else ""
-            title = entry[1].get() if len(entry) > 1 else f"Listing #{idx+1}"
-
-            # ── 1. Enforce Global Inter-Account Stagger Delay ──
-            if self.wait_time_accounts > 0:
-                with _global_post_lock:
-                    now = time.time()
-                    elapsed = now - _global_last_post_time
-                    if _global_last_post_time > 0 and elapsed < self.wait_time_accounts:
-                        stagger_wait = self.wait_time_accounts - elapsed
-                        log_live_message(f"⏳ [{email}] Waiting {int(stagger_wait)}s inter-account stagger delay to protect account...")
-                        update_account_state(email, state="COOLDOWN", details=f"Inter-Account Delay: {int(stagger_wait)}s remaining")
-                        if not _interruptible_sleep(stagger_wait, self.stop_event, email=email, state_label="Inter-Account Stagger Delay"):
-                            return
-                    _global_last_post_time = time.time()
-
-            # ── 2. Acquire concurrency slot ──
-            update_account_state(email, state="WAITING_SLOT", details=f"Waiting for available browser slot to post '{title}'")
-            if self.semaphore:
-                acquired = False
-                while not acquired:
-                    if self.stop_event.is_set():
-                        return
-                    acquired = self.semaphore.acquire(timeout=1.0)
-
-            with _status_lock:
-                LIVE_BOT_STATE["active_browsers"] += 1
-                if email in LIVE_BOT_STATE["accounts"]:
-                    LIVE_BOT_STATE["accounts"][email]["browser_open"] = True
-
-            MAX_RETRIES = 3
-            listing_succeeded = False
-
-            for attempt in range(1, MAX_RETRIES + 1):
+        # ── Acquire concurrency slot for this account worker ──
+        if self.semaphore:
+            acquired = False
+            while not acquired:
                 if self.stop_event.is_set():
-                    break
+                    return
+                acquired = self.semaphore.acquire(timeout=1.0)
 
-                driver = None
-                keep_browser_open = False
+        with _status_lock:
+            LIVE_BOT_STATE["active_browsers"] += 1
+            if email in LIVE_BOT_STATE["accounts"]:
+                LIVE_BOT_STATE["accounts"][email]["browser_open"] = True
+
+        driver = None
+        is_ix = False
+
+        try:
+            # ── 1. Check for assigned or open ixBrowser profile ──
+            matched_ix = self.ix_profile
+            if not matched_ix:
+                ix_profiles = ix_manager.get_opened_profiles()
+                if ix_profiles:
+                    for ip in ix_profiles:
+                        p_name = (ip.get("name") or "").lower()
+                        if email.lower() in p_name or (self.fb_name and self.fb_name.lower() in p_name):
+                            matched_ix = ip
+                            break
+                    if not matched_ix:
+                        matched_ix = ix_profiles[0]
+
+            if matched_ix and matched_ix.get("debugging_address"):
+                log_live_message(f"🌐 [{display_id}] Detected open ixBrowser profile '{matched_ix.get('name')}' ({matched_ix['debugging_address']}). Attaching...")
+                update_account_state(email, state="ATTACHING", details="Attaching to ixBrowser profile...", fb_name=self.fb_name)
                 try:
-                    if attempt > 1:
-                        log_live_message(f"🔄 [{email}] Retry {attempt}/{MAX_RETRIES} for listing '{title}'...")
-                        update_account_state(email, state="LAUNCHING", details=f"Retry {attempt}/{MAX_RETRIES} for '{title}'")
-                    else:
-                        log_live_message(f"🌐 [{email}] Launching Chrome profile for listing '{title}'...")
-                        update_account_state(email, state="LAUNCHING", details=f"Starting Chrome for '{title}'")
-
-                    safe_email = email_to_safe(email, self.phone)
-                    base_profile_dir = Path("profiles")
-                    profile_dir = base_profile_dir / safe_email
-                    profile_dir.mkdir(parents=True, exist_ok=True)
-
-                    # Clean up any leftover browser singleton locks
-                    for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]:
-                        lock_file = profile_dir / lock_name
-                        if lock_file.exists():
-                            try:
-                                lock_file.unlink()
-                            except Exception:
-                                pass
-
-                    options = webdriver.ChromeOptions()
-                    options.add_argument("--start-maximized")
-                    options.add_argument(f"--user-data-dir={str(profile_dir.resolve())}")
-                    options.add_argument("--profile-directory=Default")
-                    options.add_argument("--no-sandbox")
-                    options.add_argument("--disable-gpu")
-                    options.add_argument("--disable-dev-shm-usage")
-                    options.add_argument("--window-size=1920,1080")
-                    options.add_argument("--disable-blink-features=AutomationControlled")
-                    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                    options.add_experimental_option("useAutomationExtension", False)
-                    if self.proxy and str(self.proxy).strip() and str(self.proxy).strip() != "nan":
-                        options.add_argument(f"--proxy-server={str(self.proxy).strip()}")
-
-                    service = Service(ChromeDriverManager().install())
-                    driver = webdriver.Chrome(service=service, options=options)
-
-                    # Apply CDP Anti-Detection Stealth Patches
-                    try:
-                        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                            "source": """
-                                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                                window.chrome = { runtime: {} };
-                                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                            """
-                        })
-                    except Exception:
-                        pass
-
+                    driver = ix_manager.attach_driver(matched_ix["debugging_address"], matched_ix.get("webdriver"))
+                    is_ix = True
+                    log_live_message(f"✅ [{display_id}] Attached to ixBrowser session successfully!")
                     with active_drivers_lock:
                         ACTIVE_DRIVERS.append(driver)
-
-                    marker = profile_dir / "First_Login_Done.txt"
-                    if not marker.exists():
-                        raise Exception(f"Account {email} is not logged in yet. Please log in first via Manage Accounts.")
-
-                    # ── 3. Pre-Flight Health & Previous Listing Review Check (On 2nd+ listing or re-opened ID) ──
-                    if idx > 0 and attempt == 1:
-                        update_account_state(email, state="CHECKING", details="Checking previous listing & account health...")
-                        is_healthy, flag_reason = check_account_health_and_previous_listing(driver)
-                        if not is_healthy:
-                            flag_account(email, flag_reason, title)
-                            log_live_message(f"🚨 [{email}] Flagged during health check: {flag_reason}! Closing profile and skipping.")
-                            update_account_state(email, state="FLAGGED", details=f"Flagged: {flag_reason}")
-                            self.failed_listings.append(f"{title} (🚨 FLAGGED: {flag_reason})")
-                            listing_succeeded = True  # Mark as handled so the outer "failed" check doesn't double-add
-                            break  # Don't retry flagged accounts
-
-                    update_account_state(email, state="NAVIGATING", details="Navigating to Facebook Marketplace...")
-                    check = move_to_path(driver)
-                    if not check:
-                        # Organic entry: visit Facebook home first, simulate brief scroll, then go to marketplace
-                        driver.get("https://www.facebook.com")
-                        time.sleep(random.randint(3, 5))
-                        try:
-                            driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
-                        except Exception:
-                            pass
-                        time.sleep(random.randint(2, 4))
-                        driver.get("https://www.facebook.com/marketplace/create/item")
-                    else:
-                        driver.refresh()
-
-                    time.sleep(5)
-
-                    # ── Extract and Persist Facebook Account Profile Name ──
-                    try:
-                        from account_names import extract_fb_name_from_driver, save_account_fb_name
-                        scraped_name = extract_fb_name_from_driver(driver)
-                        if scraped_name:
-                            save_account_fb_name(email, scraped_name)
-                            if self.phone:
-                                save_account_fb_name(self.phone, scraped_name)
-                            self.fb_name = scraped_name
-                    except Exception:
-                        pass
-                    display_id = self.fb_name or email
-
-                    (img_entries, title_entry, description_entry, category_entry, location_entry,
-                     tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
-
-                    post_title = title_entry.get()
-                    price = price_entry.get()
-                    category = category_entry.get()
-                    condition = condition_entry.get()
-                    description = description_entry.get("1.0", "end").strip()
-                    availability = availability_entry.get()
-                    product_tags = [tag.strip() for tag in tags_entry.get().split(",") if tag.strip()]
-                    images = [img.get() for img in img_entries if img.get()]
-                    video = video_entry.get().strip()
-
-                    # ── Image Duplicate Check (warn if image already used on this account) ──
-                    if attempt == 1:  # Only warn on first attempt, not retries
-                        img_warnings = check_image_usage(images, email)
-                        for w in img_warnings:
-                            log_live_message(f"⚠️ [{display_id}] {w} — proceeding but Facebook may detect duplicate.")
-
-                    update_account_state(email, state="POSTING", details=f"Posting '{post_title}' (attempt {attempt}/{MAX_RETRIES})...", fb_name=self.fb_name)
-                    result = go_to_items(
-                        driver=driver,
-                        title=post_title,
-                        price=price,
-                        category=category,
-                        condition=condition,
-                        description=description,
-                        availability=availability,
-                        product_tags=product_tags,
-                        location=loc,
-                        images=images,
-                        video=video,
-                        public_meetup=opt_vars[0].get(),
-                        door_meetup=opt_vars[1].get(),
-                        door_dropoff=opt_vars[2].get(),
-                        marketplace_location=self.marketplace_location
-                    )
-
-                    if result:
-                        listing_succeeded = True
-                        log_live_message(f"✅ [{display_id}] Listing '{post_title}' published successfully!")
-                        set_file_status(post_title, email)
-                        record_completion(post_title, email)  # Permanent log — never wiped
-                        # Record image usage for future deduplication
-                        record_image_usage(images, email)
-                        with _status_lock:
-                            LIVE_BOT_STATE["completed_listings"] += 1
-                        update_account_state(email, state="SIMULATING", details="Post-listing human simulation...", fb_name=self.fb_name)
-
-                        # ── 4. Post-Listing Randomized Human Simulation ──
-                        simulate_random_human_activity(driver, self.stop_event)
-                        update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'", fb_name=self.fb_name)
-                    else:
-                        log_live_message(f"❌ [{display_id}] go_to_items returned False for '{post_title}' (attempt {attempt}/{MAX_RETRIES}).")
-                        if attempt < MAX_RETRIES:
-                            log_live_message(f"⏳ [{email}] Waiting 15s before retry...")
-                            update_account_state(email, state="COOLDOWN", details=f"Retry cooldown before attempt {attempt + 1}...")
-                            _interruptible_sleep(15, self.stop_event, email=email, state_label="Pre-Retry Wait")
-
                 except Exception as e:
-                    log_live_message(f"🚨 [{email}] Error on attempt {attempt}/{MAX_RETRIES}: {e}")
-                    err_detail = str(e)[:80]
-                    update_account_state(email, state="ERROR", details=f"Attempt {attempt} error: {err_detail}")
-                    if attempt < MAX_RETRIES:
-                        log_live_message(f"⏳ [{email}] Waiting 20s before retry {attempt + 1}...")
-                        update_account_state(email, state="COOLDOWN", details=f"Waiting before retry {attempt + 1}...")
-                        _interruptible_sleep(20, self.stop_event, email=email, state_label="Pre-Retry Wait")
+                    log_live_message(f"⚠️ [{display_id}] Could not attach to ixBrowser: {e}. Launching local Chrome.")
+                    driver = None
 
-                finally:
-                    # Always quit the driver after each attempt; a new one is opened on retry
-                    if driver is not None:
-                        with active_drivers_lock:
-                            if driver in ACTIVE_DRIVERS:
-                                ACTIVE_DRIVERS.remove(driver)
+            # ── Fallback to Local Chrome if no ixBrowser attached ──
+            if driver is None:
+                log_live_message(f"🌐 [{email}] Launching local Chrome profile...")
+                update_account_state(email, state="LAUNCHING", details="Launching Chrome...", fb_name=self.fb_name)
+                safe_email = email_to_safe(email, self.phone)
+                base_profile_dir = Path("profiles")
+                profile_dir = base_profile_dir / safe_email
+                profile_dir.mkdir(parents=True, exist_ok=True)
+
+                for lock_name in ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]:
+                    lock_file = profile_dir / lock_name
+                    if lock_file.exists():
                         try:
-                            driver.quit()
+                            lock_file.unlink()
                         except Exception:
                             pass
 
-                # If succeeded, stop retrying
-                if listing_succeeded:
-                    break
+                options = webdriver.ChromeOptions()
+                options.add_argument("--start-maximized")
+                options.add_argument(f"--user-data-dir={str(profile_dir.resolve())}")
+                options.add_argument("--profile-directory=Default")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option("useAutomationExtension", False)
+                if self.proxy and str(self.proxy).strip() and str(self.proxy).strip() != "nan":
+                    options.add_argument(f"--proxy-server={str(self.proxy).strip()}")
 
-            # After all retry attempts exhausted without success
-            if not listing_succeeded:
-                err_short = title[:50]
-                log_live_message(f"💀 [{email}] All {MAX_RETRIES} attempts failed for '{err_short}'. Marking as failed.")
-                self.failed_listings.append(title)
-                update_account_state(email, state="FAILED", details=f"All retries exhausted for '{err_short}'")
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=options)
 
-            # Release the concurrency semaphore slot (acquired once per listing at the top of the outer loop)
+                try:
+                    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                        "source": """
+                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                            window.chrome = { runtime: {} };
+                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                        """
+                    })
+                except Exception:
+                    pass
+
+                with active_drivers_lock:
+                    ACTIVE_DRIVERS.append(driver)
+
+            # ── Scrape FB name if not yet cached ──
+            try:
+                from account_names import extract_fb_name_from_driver, save_account_fb_name
+                scraped_name = extract_fb_name_from_driver(driver)
+                if scraped_name:
+                    save_account_fb_name(email, scraped_name)
+                    if self.phone:
+                        save_account_fb_name(self.phone, scraped_name)
+                    self.fb_name = scraped_name
+                    display_id = scraped_name
+            except Exception:
+                pass
+
+            # ── Loop Through Assigned Listings (Browser Remains Permanently Open) ──
+            for idx, entry in enumerate(self.assigned_entries):
+                if self.stop_event.is_set():
+                    log_live_message(f"🛑 Worker stopped for {email}")
+                    update_account_state(email, state="STOPPED", details="Halted by user", fb_name=self.fb_name)
+                    return
+
+                loc = self.location_list[idx % len(self.location_list)] if self.location_list else ""
+                title = entry[1].get() if len(entry) > 1 else f"Listing #{idx+1}"
+
+                # ── Enforce Global Inter-Account Stagger Delay ──
+                if self.wait_time_accounts > 0:
+                    with _global_post_lock:
+                        now = time.time()
+                        elapsed = now - _global_last_post_time
+                        if _global_last_post_time > 0 and elapsed < self.wait_time_accounts:
+                            stagger_wait = self.wait_time_accounts - elapsed
+                            log_live_message(f"⏳ [{display_id}] Waiting {int(stagger_wait)}s inter-account stagger delay...")
+                            update_account_state(email, state="COOLDOWN", details=f"Stagger Delay: {int(stagger_wait)}s remaining", fb_name=self.fb_name)
+                            if not _interruptible_sleep(stagger_wait, self.stop_event, email=email, state_label="Inter-Account Stagger Delay"):
+                                return
+                        _global_last_post_time = time.time()
+
+                MAX_RETRIES = 3
+                listing_succeeded = False
+
+                for attempt in range(1, MAX_RETRIES + 1):
+                    if self.stop_event.is_set():
+                        break
+
+                    try:
+                        update_account_state(email, state="NAVIGATING", details=f"Navigating to Marketplace for '{title}'...", fb_name=self.fb_name)
+                        driver.get("https://www.facebook.com/marketplace/create/item")
+                        time.sleep(random.randint(5, 8))
+
+                        # Check for health if on 2nd+ listing
+                        if idx > 0 and attempt == 1:
+                            is_healthy, flag_reason = check_account_health_and_previous_listing(driver)
+                            if not is_healthy:
+                                flag_account(email, flag_reason, title)
+                                log_live_message(f"🚨 [{display_id}] Flagged during health check: {flag_reason}!")
+                                update_account_state(email, state="FLAGGED", details=f"Flagged: {flag_reason}", fb_name=self.fb_name)
+                                self.failed_listings.append(f"{title} (🚨 FLAGGED: {flag_reason})")
+                                listing_succeeded = True
+                                break
+
+                        (img_entries, title_entry, description_entry, category_entry, location_entry,
+                         tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
+
+                        post_title = title_entry.get()
+                        price = price_entry.get()
+                        category = category_entry.get()
+                        condition = condition_entry.get()
+                        description = description_entry.get("1.0", "end").strip()
+                        availability = availability_entry.get()
+                        product_tags = [tag.strip() for tag in tags_entry.get().split(",") if tag.strip()]
+                        images = [img.get() for img in img_entries if img.get()]
+                        video = video_entry.get().strip()
+
+                        if attempt == 1:
+                            img_warnings = check_image_usage(images, email)
+                            for w in img_warnings:
+                                log_live_message(f"⚠️ [{display_id}] {w}")
+
+                        update_account_state(email, state="POSTING", details=f"Posting '{post_title}' (attempt {attempt}/{MAX_RETRIES})...", fb_name=self.fb_name)
+                        result = go_to_items(
+                            driver=driver,
+                            title=post_title,
+                            price=price,
+                            category=category,
+                            condition=condition,
+                            description=description,
+                            availability=availability,
+                            product_tags=product_tags,
+                            location=loc,
+                            images=images,
+                            video=video,
+                            public_meetup=opt_vars[0].get(),
+                            door_meetup=opt_vars[1].get(),
+                            door_dropoff=opt_vars[2].get(),
+                            marketplace_location=self.marketplace_location
+                        )
+
+                        if result:
+                            listing_succeeded = True
+                            log_live_message(f"✅ [{display_id}] Listing '{post_title}' published successfully!")
+                            set_file_status(post_title, email)
+                            record_completion(post_title, email)
+                            record_image_usage(images, email)
+                            with _status_lock:
+                                LIVE_BOT_STATE["completed_listings"] += 1
+
+                            # ── Extended Human Simulation (30-40 min) — NEVER CLOSES BROWSER ──
+                            sim_seconds = random.randint(1800, 2400)  # 30-40 minutes per document
+                            mins_sim = int(sim_seconds // 60)
+                            log_live_message(f"🎭 [{display_id}] Listing complete! Starting {mins_sim}-minute human simulation (reels, feed, marketplace)...")
+                            update_account_state(email, state="SIMULATING", details=f"Human simulation ({mins_sim}m)...", fb_name=self.fb_name)
+                            simulate_random_human_activity(
+                                driver=driver,
+                                stop_event=self.stop_event,
+                                total_target_seconds=sim_seconds,
+                                email=email,
+                                on_status=lambda msg, rem: update_account_state(email, state="SIMULATING", details=msg, cooldown_remaining=rem, fb_name=self.fb_name)
+                            )
+                            update_account_state(email, state="APPROVED", details=f"Published: '{post_title}'", fb_name=self.fb_name)
+                        else:
+                            log_live_message(f"❌ [{display_id}] go_to_items returned False for '{post_title}' (attempt {attempt}/{MAX_RETRIES}).")
+                            if attempt < MAX_RETRIES:
+                                _interruptible_sleep(15, self.stop_event, email=email, state_label="Pre-Retry Wait")
+
+                    except Exception as e:
+                        log_live_message(f"🚨 [{display_id}] Error on attempt {attempt}/{MAX_RETRIES}: {e}")
+                        err_detail = str(e)[:80]
+                        update_account_state(email, state="ERROR", details=f"Attempt {attempt} error: {err_detail}", fb_name=self.fb_name)
+                        if attempt < MAX_RETRIES:
+                            _interruptible_sleep(20, self.stop_event, email=email, state_label="Pre-Retry Wait")
+
+                    if listing_succeeded:
+                        break
+
+                if not listing_succeeded:
+                    err_short = title[:50]
+                    log_live_message(f"💀 [{display_id}] All {MAX_RETRIES} attempts failed for '{err_short}'.")
+                    self.failed_listings.append(title)
+                    update_account_state(email, state="FAILED", details=f"All retries exhausted for '{err_short}'", fb_name=self.fb_name)
+
+            # ── Final Summary — Keep browser session open ──
+            if len(self.failed_listings) == 0:
+                update_account_state(email, state="COMPLETED", details="All assigned listings finished ✅ (Browser open)", fb_name=self.fb_name)
+                log_live_message(f"🎉 [{display_id}] Worker finished all tasks successfully. Browser kept open.")
+            else:
+                failed_count = len(self.failed_listings)
+                total = len(self.assigned_entries)
+                update_account_state(email, state="COMPLETED_WITH_ERRORS", details=f"{failed_count}/{total} listings failed ⚠️ (Browser open)", fb_name=self.fb_name)
+                log_live_message(f"⚠️ [{display_id}] Worker finished with {failed_count} failed listing(s). Browser kept open.")
+
+        finally:
+            # Release concurrency slot
             with _status_lock:
                 LIVE_BOT_STATE["active_browsers"] = max(0, LIVE_BOT_STATE["active_browsers"] - 1)
                 if email in LIVE_BOT_STATE["accounts"]:
-                    LIVE_BOT_STATE["accounts"][email]["browser_open"] = False
+                    LIVE_BOT_STATE["accounts"][email]["browser_open"] = (driver is not None)
 
             if self.semaphore:
                 try:
                     self.semaphore.release()
-                except ValueError:
+                except Exception:
                     pass
-
-
-
-            # If there are more listings scheduled for this account and no flags, enter cooldown
-            if idx < len(self.assigned_entries) - 1:
-                log_live_message(f"⏳ [{email}] Entering Cooldown ({self.time_sleep_cooldown}s) before next listing...")
-                if not _interruptible_sleep(self.time_sleep_cooldown, self.stop_event, email=email, state_label="Account Cooldown"):
-                    log_live_message(f"🛑 [{email}] Cooldown stopped by user.")
-                    return
-
-
-        # ── Final Worker Summary ──
-        if len(self.failed_listings) == 0:
-            update_account_state(email, state="COMPLETED", details="All assigned listings finished ✅")
-            log_live_message(f"🎉 [{email}] Worker completed all tasks successfully.")
-        else:
-            failed_count = len(self.failed_listings)
-            total = len(self.assigned_entries)
-            update_account_state(email, state="COMPLETED_WITH_ERRORS", details=f"{failed_count}/{total} listings failed ⚠️")
-            log_live_message(f"⚠️ [{email}] Worker finished with {failed_count} failed listing(s) out of {total}.")
+            if self.stop_event.is_set() and not is_ix and driver is not None:
+                with active_drivers_lock:
+                    if driver in ACTIVE_DRIVERS:
+                        ACTIVE_DRIVERS.remove(driver)
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
 
 
 
@@ -652,9 +650,21 @@ def run_orchestrator(
     if stop_event is None:
         stop_event = threading.Event()
 
+    # ── 1. Detect open ixBrowser profiles first ──
+    ix_profiles = ix_manager.get_opened_profiles()
+    ix_profile_map = {}
+
     accounts = read_multiple_credentials(CSV_PATH)
-    if not accounts:
-        log_live_message("⚠️ No accounts found in emails.csv. Please add accounts first.")
+    if ix_profiles:
+        profile_names = [p.get('name') or f"ixProfile_{p.get('profile_id')}" for p in ix_profiles]
+        log_live_message(f"🌐 [ixBrowser] Detected {len(ix_profiles)} open profile(s): {', '.join(profile_names)}")
+        if not accounts or len(accounts) < len(ix_profiles):
+            accounts = [(p_name, "", "") for p_name in profile_names]
+        for idx, acc in enumerate(accounts):
+            if idx < len(ix_profiles):
+                ix_profile_map[acc[0]] = ix_profiles[idx]
+    elif not accounts:
+        log_live_message("⚠️ No open ixBrowser profiles detected and no accounts found in emails.csv. Please open your Facebook IDs in ixBrowser or add accounts to emails.csv.")
         return {}
 
     # ── Load existing completion state from BOTH saved_states.csv AND completed_log.json ──
@@ -776,7 +786,8 @@ def run_orchestrator(
             wait_for_review=wait_for_review,
             stop_event=stop_event,
             semaphore=semaphore,
-            max_review_timeout=max_review_timeout
+            max_review_timeout=max_review_timeout,
+            ix_profile=ix_profile_map.get(account[0])
         )
         workers.append(worker)
 

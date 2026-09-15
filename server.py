@@ -276,6 +276,16 @@ def get_failed_fields_endpoint():
 current_background_tasks: list[threading.Thread] = []
 stop_event = threading.Event()
 
+@app.get("/ixbrowser/profiles")
+def api_ixbrowser_profiles():
+    """Returns detected ixBrowser profiles and API availability status."""
+    from ix_detector import ix_manager
+    return {
+        "api_available": ix_manager.is_api_available(),
+        "port": ix_manager.port,
+        "opened_profiles": ix_manager.get_opened_profiles()
+    }
+
 @app.get("/bot-status")
 def api_bot_status():
     """Returns real-time status of all active account workers and queue metrics."""
