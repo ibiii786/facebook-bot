@@ -276,6 +276,16 @@ def get_failed_fields_endpoint():
 current_background_tasks: list[threading.Thread] = []
 stop_event = threading.Event()
 
+@app.get("/ixbrowser/profiles")
+def api_ixbrowser_profiles():
+    """Returns detected ixBrowser profiles and API availability status."""
+    from ix_detector import ix_manager
+    return {
+        "api_available": ix_manager.is_api_available(),
+        "port": ix_manager.port,
+        "opened_profiles": ix_manager.get_opened_profiles()
+    }
+
 @app.get("/bot-status")
 def api_bot_status():
     """Returns real-time status of all active account workers and queue metrics."""
@@ -494,16 +504,23 @@ class LoginSessionRequest(BaseModel):
 
 @app.get("/accounts")
 def get_accounts():
-    from login_profile import load_emails_df, is_account_authenticated
-    from account_names import get_account_fb_name
-    df = load_emails_df()
+    from ix_detector import ix_manager
+    profiles = ix_manager.get_all_detected_profiles()
     accounts = []
-    for row in df.to_dict(orient="records"):
-        email = row.get("email", "")
-        phone = row.get("phone", "")
-        row["authenticated"] = is_account_authenticated(email, phone)
-        row["fb_name"] = get_account_fb_name(email or phone)
-        accounts.append(row)
+    for p in profiles:
+        is_open = bool(p.get("debugging_address"))
+        accounts.append({
+            "email": p.get("name"),
+            "phone": f"Profile {p.get('profile_id')}",
+            "password": "",
+            "proxy": "",
+            "authenticated": is_open,
+            "status": "🟢 Open on Taskbar" if is_open else "🟡 Offline (Click Open in ixBrowser)",
+            "fb_name": p.get("name"),
+            "profile_id": p.get("profile_id"),
+            "is_ix": True,
+            "debugging_address": p.get("debugging_address")
+        })
     return {"accounts": accounts}
 
 

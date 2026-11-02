@@ -27,6 +27,7 @@ function switchTab(tabId) {
   if (activeContent) activeContent.classList.add('active');
 
   if (tabId === 'tab-accounts') {
+    loadAccountsModal();
     loadFlaggedAccountsFromUI();
   }
 }
@@ -35,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (stop_btn) stop_btn.disabled = true;
   loadSessionOnStartup();
   loadFlaggedAccountsFromUI();
+  loadAccountsModal();
 });
 
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
@@ -1277,58 +1279,52 @@ async function loadAccountsModal() {
   try {
     const res = await fetchAccounts();
     const accounts = res.accounts || [];
-    const container = document.getElementById('accounts-list-container');
-    if (!container) return;
-    container.innerHTML = '';
+    const containers = [
+      document.getElementById('accounts-list-container'),
+      document.getElementById('modal-accounts-list')
+    ].filter(Boolean);
 
-    if (accounts.length === 0) {
-      container.innerHTML = '<div style="color:var(--text-muted);padding:8px;">No accounts saved yet.</div>';
-    } else {
-      accounts.forEach(acc => {
-        const item = document.createElement('div');
-        item.className = 'saved-item';
+    containers.forEach(container => {
+      container.innerHTML = '';
+      if (accounts.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted);padding:14px;text-align:center;">No ixBrowser profiles detected. Open your profiles in ixBrowser to connect.</div>';
+      } else {
+        accounts.forEach(acc => {
+          const item = document.createElement('div');
+          item.className = 'saved-item';
+          item.style.display = 'flex';
+          item.style.justifyContent = 'space-between';
+          item.style.alignItems = 'center';
+          item.style.padding = '14px 16px';
+          item.style.marginBottom = '10px';
+          item.style.borderRadius = '8px';
+          item.style.background = 'rgba(255, 255, 255, 0.04)';
+          item.style.border = '1px solid rgba(255, 255, 255, 0.08)';
 
-        const statusBadge = acc.authenticated
-          ? '<span style="color:#4caf50;font-weight:bold;margin-left:6px;">🟢 Authenticated</span>'
-          : '<span style="color:#f44336;font-weight:bold;margin-left:6px;">🔴 Not Initialized</span>';
+          const isOnline = acc.authenticated;
+          const statusBadge = isOnline
+            ? '<span style="color:#4caf50;font-weight:600;margin-left:8px;font-size:13px;">🟢 Open on Taskbar & Ready</span>'
+            : '<span style="color:#ffa726;font-weight:600;margin-left:8px;font-size:13px;">🟡 Ready (Click "Open" in ixBrowser)</span>';
 
-        const displayName = acc.fb_name ? `<strong>${acc.fb_name}</strong> <span style="font-size:12px;color:var(--text-muted);font-weight:normal;">(${acc.email})</span>` : `<strong>${acc.email}</strong>`;
+          const info = document.createElement('div');
+          info.className = 'saved-item-info';
+          info.innerHTML = `<div style="font-size:15px;font-weight:600;color:var(--text-main, #fff);">${acc.fb_name || acc.email} ${statusBadge}</div>
+                            <div style="font-size:12px;color:var(--text-muted, #8b949e);margin-top:4px;">
+                              ${acc.phone ? '🆔 ' + acc.phone + ' • ' : ''} 🌐 ixBrowser Kernel (Taskbar Controlled)
+                            </div>`;
 
-        const info = document.createElement('div');
-        info.className = 'saved-item-info';
-        info.innerHTML = `<div>${displayName} ${statusBadge}</div>
-                          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-                            ${acc.phone ? '📞 ' + acc.phone + ' ' : ''} ${acc.proxy ? '🌐 Proxy: ' + acc.proxy : ''}
-                          </div>`;
+          item.appendChild(info);
+          container.appendChild(item);
+        });
+      }
+    });
 
-        const btnGroup = document.createElement('div');
-        btnGroup.className = 'saved-item-actions';
-
-        const autoLoginBtn = document.createElement('button');
-        autoLoginBtn.className = 'btn btn-primary';
-        autoLoginBtn.style.padding = '4px 10px';
-        autoLoginBtn.style.fontSize = '12px';
-        autoLoginBtn.textContent = '🚀 Auto-Login & Setup';
-        autoLoginBtn.onclick = () => autoLoginFromUI(acc.email, acc.password, acc.proxy);
-
-        const delBtn = document.createElement('button');
-        delBtn.className = 'btn btn-danger';
-        delBtn.style.padding = '4px 10px';
-        delBtn.style.fontSize = '12px';
-        delBtn.textContent = '🗑️ Delete';
-        delBtn.onclick = () => deleteAccountFromUI(acc.email);
-
-        btnGroup.appendChild(autoLoginBtn);
-        btnGroup.appendChild(delBtn);
-
-        item.appendChild(info);
-        item.appendChild(btnGroup);
-        container.appendChild(item);
-      });
+    const modal = document.getElementById('modal-accounts');
+    if (modal && !modal.classList.contains('hidden')) {
+      openModal('modal-accounts');
     }
-    openModal('modal-accounts');
   } catch (err) {
-    alert(`Failed loading accounts: ${err.message}`);
+    console.error(`Failed loading ixBrowser profiles: ${err.message}`);
   }
 }
 
