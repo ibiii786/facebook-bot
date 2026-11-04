@@ -8,12 +8,8 @@ _LOCK = threading.Lock()
 ACCOUNT_NAMES_FILE = "account_names.json"
 
 DEFAULT_SEEDED_NAMES = {
-    "profile_5": "Anton Dixon",
-    "profile_3": "Felix Bronson",
-    "anton_dixon": "Anton Dixon",
-    "felix_bronson": "Felix Bronson",
-    "846fa927cf3f62f5819ca59f71428d24": "Anton Dixon",
-    "5a18f1ff0960dc79187626406b9c8a9c": "Felix Bronson"
+    "+13658659037": "Felix Navidad",
+    "shane11872026@outlook.com": "Shane Shane"
 }
 
 def _get_storage_path() -> str:

@@ -24,7 +24,8 @@
         <div class="nav-tab active" data-tab="tab-products" onclick="switchTab('tab-products')">Products</div>
         <div class="nav-tab" data-tab="tab-settings" onclick="switchTab('tab-settings')">Automation Settings</div>
         <div class="nav-tab" data-tab="tab-bulk" onclick="switchTab('tab-bulk')">Bulk Suite</div>
-        <div class="nav-tab" data-tab="tab-accounts" onclick="switchTab('tab-accounts')">ixBrowser Profiles</div>
+        <div class="nav-tab" data-tab="tab-accounts" onclick="switchTab('tab-accounts')">Accounts & Proxies</div>
+        <div class="nav-tab" data-tab="tab-monitor" onclick="switchTab('tab-monitor')">Live Monitor</div>
       </nav>
 
       <div class="sidebar-footer">
@@ -249,22 +250,91 @@
       <div id="tab-accounts" class="tab-content">
         <div class="settings-grid">
           
+          <div class="panel-card">
+            <h2>Account Profiles & Proxies</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">Manage Chrome login profiles, credentials, and dedicated proxies per account.</p>
+            <div class="btn-grid">
+              <button id="btn-accounts" class="btn btn-secondary" onclick="loadAccountsModal()">Manage Accounts & Proxies</button>
+              <button class="btn btn-ghost" onclick="loadFlaggedAccountsFromUI()">Refresh Health Status</button>
+            </div>
+          </div>
+
           <div class="panel-card" style="grid-column: 1 / -1;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-              <h2>🌐 ixBrowser Facebook Profiles</h2>
-              <button class="btn btn-secondary btn-sm" onclick="loadAccountsModal()">🔄 Refresh Profiles</button>
+              <h2>Flagged & Restricted Accounts (<span id="flagged-count">0</span>)</h2>
+              <button class="btn btn-ghost btn-sm" onclick="loadFlaggedAccountsFromUI()">Refresh</button>
             </div>
             <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;">
-              Your Facebook IDs are opened directly in <strong>ixBrowser</strong>. When open on your taskbar with the Facebook homepage loaded, the bot automatically detects and takes control of them to post listings and simulate human activity.
+              Accounts flagged during deferred review or checkpoint inspection. Flagged accounts are <strong>automatically skipped</strong> by the bot in subsequent runs to avoid further restrictions.
             </p>
-            <div id="accounts-list-container" class="saved-list" style="margin-top:10px;"></div>
+            <div id="flagged-accounts-list" class="saved-list">
+              <div class="monitor-empty-state">✅ No accounts are currently flagged. All accounts are in good standing.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <!-- Tab 5: Live Monitor & Missed Listings -->
+      <div id="tab-monitor" class="tab-content">
+        <div class="settings-grid">
+
+          <div class="panel-card" style="grid-column: 1 / -1;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <h2>Live Bot Monitor</h2>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-ghost btn-sm" onclick="pollAndRenderBotStatus()">Refresh Status</button>
+                <button class="btn btn-secondary btn-sm" onclick="endTasks()">Stop Bot</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:16px;">
+              <div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">BOT STATUS</div>
+                <div id="stat-bot-status" style="font-size:18px;font-weight:700;color:var(--text-primary);">IDLE</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">ACTIVE BROWSERS</div>
+                <div id="stat-active-browsers" style="font-size:18px;font-weight:700;color:var(--accent-blue);">0 / 0</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">COMPLETED</div>
+                <div id="stat-completed-listings" style="font-size:18px;font-weight:700;color:#22c55e;">0 / 0</div>
+              </div>
+            </div>
+            <div id="monitor-accounts-grid">
+              <div class="monitor-empty-state">No accounts active right now. Start the bot to see live multitasking workers here.</div>
+            </div>
+          </div>
+
+          <div class="panel-card" style="grid-column: 1 / -1;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <h2>Live Logs</h2>
+              <button class="btn btn-ghost btn-sm" onclick="pollAndRenderBotStatus()">Refresh</button>
+            </div>
+            <div id="monitor-logs-console" style="background:#0f1117;color:#e2e8f0;font-family:monospace;font-size:12px;border-radius:8px;padding:12px;min-height:120px;max-height:300px;overflow-y:auto;">
+              <div style="color:#64748b;">Bot logs will appear here when running...</div>
+            </div>
+          </div>
+
+          <div class="panel-card" style="grid-column: 1 / -1;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <div>
+                <h2>Missed Listings &amp; Targeted Retry</h2>
+                <p style="color:var(--text-muted);font-size:13px;margin:4px 0 0;">
+                  Any listing that failed for a specific account appears here.
+                  Click <strong>Retry Now</strong> to open only that account's browser and post
+                  just that one listing without touching any other account.
+                </p>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="refreshMissedListings()">Refresh</button>
+            </div>
+            <div id="missed-listings-panel">
+              <div class="monitor-empty-state">Click Refresh to load missed listings history.</div>
+            </div>
           </div>
 
         </div>
       </div>
 
-        </div>
-      </div>
 
 
     </div>
@@ -404,13 +474,22 @@
   <!-- Account Manager Modal -->
   <div id="modal-accounts" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>🌐 ixBrowser Facebook Profiles</h3>
-      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">
-        Profiles registered in ixBrowser. Click "Open" in ixBrowser to have them open on the taskbar. The bot connects automatically.
-      </p>
-      <div id="modal-accounts-list" class="saved-list"></div>
-      <div class="modal-actions" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
-        <button class="btn btn-secondary btn-sm" onclick="loadAccountsModal()">🔄 Scan Taskbar</button>
+      <h3>Manage Accounts</h3>
+      <div class="form-group">
+        <label>Add Account Profile</label>
+        <div class="fields-grid-3">
+          <input id="acc-email-input" class="input" type="text" placeholder="Email / Username" />
+          <input id="acc-pass-input" class="input" type="password" placeholder="Password" />
+          <input id="acc-phone-input" class="input" type="text" placeholder="Phone" />
+        </div>
+        <div class="form-group">
+          <input id="acc-proxy-input" class="input" type="text" placeholder="Proxy e.g. http://user:pass@host:port" />
+        </div>
+        <button class="btn btn-secondary" onclick="saveAccountFromUI()">Save Profile</button>
+      </div>
+      <h4 style="margin-top:16px;font-size:13px;font-weight:600;">Saved Accounts</h4>
+      <div id="accounts-list-container" class="saved-list"></div>
+      <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal('modal-accounts')">Close</button>
       </div>
     </div>
@@ -434,7 +513,7 @@
 
   <script src="UI.js?v=2.3"></script>
   <script src="api.js?v=2.4"></script>
-  <script src="app.js?v=2.6"></script>
+  <script src="app.js?v=2.4"></script>
 </body>
 
 </html>

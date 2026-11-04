@@ -403,3 +403,37 @@ async function unflagAccountAPI(email) {
 function downloadCSVTemplate() {
   window.open(`${BASE_URL}/download-template`, '_blank');
 }
+
+// ── Single-Account Targeted Listing ─────────────────────────────────────────
+/**
+ * Post a single listing to a specific Facebook account (by email/phone).
+ * This is used in the Missed Listings / Retry panel so the user can target
+ * exactly which account missed a listing and retry it without running the
+ * full bulk bot.
+ *
+ * @param {Object} listingData  - Full listing object (title, images, price, …)
+ * @param {string} targetAccount - The email or phone that identifies the Chrome profile
+ * @returns {Promise<Object>} API response
+ */
+async function runSingleListingAPI(listingData, targetAccount) {
+  const marketplace = (typeof getMarketplace === 'function') ? getMarketplace() : 'UK';
+  const payload = {
+    listing: listingData,
+    target_account: targetAccount,
+    marketplace: marketplace,
+  };
+  return await apiPost('/run-single-listing', payload);
+}
+
+/**
+ * Fetch the full listing-history log (which listing was posted to which account and when).
+ * @returns {Promise<Object>} { status, history }
+ */
+async function fetchListingHistoryAPI() {
+  try {
+    return await apiGet('/listing-history');
+  } catch (err) {
+    console.error('fetchListingHistoryAPI error:', err);
+    return { status: 'error', history: {} };
+  }
+}

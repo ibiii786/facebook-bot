@@ -7,6 +7,3 @@ openpyxl
 python-multipart
 Pillow
 pyperclip
-requests
-psutil
-ixbrowser-local-api

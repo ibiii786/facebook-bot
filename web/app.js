@@ -27,7 +27,6 @@ function switchTab(tabId) {
   if (activeContent) activeContent.classList.add('active');
 
   if (tabId === 'tab-accounts') {
-    loadAccountsModal();
     loadFlaggedAccountsFromUI();
   }
 }
@@ -36,7 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (stop_btn) stop_btn.disabled = true;
   loadSessionOnStartup();
   loadFlaggedAccountsFromUI();
-  loadAccountsModal();
 });
 
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
@@ -1279,52 +1277,58 @@ async function loadAccountsModal() {
   try {
     const res = await fetchAccounts();
     const accounts = res.accounts || [];
-    const containers = [
-      document.getElementById('accounts-list-container'),
-      document.getElementById('modal-accounts-list')
-    ].filter(Boolean);
+    const container = document.getElementById('accounts-list-container');
+    if (!container) return;
+    container.innerHTML = '';
 
-    containers.forEach(container => {
-      container.innerHTML = '';
-      if (accounts.length === 0) {
-        container.innerHTML = '<div style="color:var(--text-muted);padding:14px;text-align:center;">No ixBrowser profiles detected. Open your profiles in ixBrowser to connect.</div>';
-      } else {
-        accounts.forEach(acc => {
-          const item = document.createElement('div');
-          item.className = 'saved-item';
-          item.style.display = 'flex';
-          item.style.justifyContent = 'space-between';
-          item.style.alignItems = 'center';
-          item.style.padding = '14px 16px';
-          item.style.marginBottom = '10px';
-          item.style.borderRadius = '8px';
-          item.style.background = 'rgba(255, 255, 255, 0.04)';
-          item.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+    if (accounts.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:8px;">No accounts saved yet.</div>';
+    } else {
+      accounts.forEach(acc => {
+        const item = document.createElement('div');
+        item.className = 'saved-item';
 
-          const isOnline = acc.authenticated;
-          const statusBadge = isOnline
-            ? '<span style="color:#4caf50;font-weight:600;margin-left:8px;font-size:13px;">🟢 Open on Taskbar & Ready</span>'
-            : '<span style="color:#ffa726;font-weight:600;margin-left:8px;font-size:13px;">🟡 Ready (Click "Open" in ixBrowser)</span>';
+        const statusBadge = acc.authenticated
+          ? '<span style="color:#4caf50;font-weight:bold;margin-left:6px;">🟢 Authenticated</span>'
+          : '<span style="color:#f44336;font-weight:bold;margin-left:6px;">🔴 Not Initialized</span>';
 
-          const info = document.createElement('div');
-          info.className = 'saved-item-info';
-          info.innerHTML = `<div style="font-size:15px;font-weight:600;color:var(--text-main, #fff);">${acc.fb_name || acc.email} ${statusBadge}</div>
-                            <div style="font-size:12px;color:var(--text-muted, #8b949e);margin-top:4px;">
-                              ${acc.phone ? '🆔 ' + acc.phone + ' • ' : ''} 🌐 ixBrowser Kernel (Taskbar Controlled)
-                            </div>`;
+        const displayName = acc.fb_name ? `<strong>${acc.fb_name}</strong> <span style="font-size:12px;color:var(--text-muted);font-weight:normal;">(${acc.email})</span>` : `<strong>${acc.email}</strong>`;
 
-          item.appendChild(info);
-          container.appendChild(item);
-        });
-      }
-    });
+        const info = document.createElement('div');
+        info.className = 'saved-item-info';
+        info.innerHTML = `<div>${displayName} ${statusBadge}</div>
+                          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                            ${acc.phone ? '📞 ' + acc.phone + ' ' : ''} ${acc.proxy ? '🌐 Proxy: ' + acc.proxy : ''}
+                          </div>`;
 
-    const modal = document.getElementById('modal-accounts');
-    if (modal && !modal.classList.contains('hidden')) {
-      openModal('modal-accounts');
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'saved-item-actions';
+
+        const autoLoginBtn = document.createElement('button');
+        autoLoginBtn.className = 'btn btn-primary';
+        autoLoginBtn.style.padding = '4px 10px';
+        autoLoginBtn.style.fontSize = '12px';
+        autoLoginBtn.textContent = '🚀 Auto-Login & Setup';
+        autoLoginBtn.onclick = () => autoLoginFromUI(acc.email, acc.password, acc.proxy);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-danger';
+        delBtn.style.padding = '4px 10px';
+        delBtn.style.fontSize = '12px';
+        delBtn.textContent = '🗑️ Delete';
+        delBtn.onclick = () => deleteAccountFromUI(acc.email);
+
+        btnGroup.appendChild(autoLoginBtn);
+        btnGroup.appendChild(delBtn);
+
+        item.appendChild(info);
+        item.appendChild(btnGroup);
+        container.appendChild(item);
+      });
     }
+    openModal('modal-accounts');
   } catch (err) {
-    console.error(`Failed loading ixBrowser profiles: ${err.message}`);
+    alert(`Failed loading accounts: ${err.message}`);
   }
 }
 
@@ -1943,3 +1947,133 @@ function runPolicyGuardCheck() {
 
 // Initial setup
 updateEmptyState();
+
+
+// ── Missed Listings / Targeted Retry Panel ────────────────────────────────────
+/**
+ * Builds and shows the Missed Listings panel inside the Live Monitor tab.
+ * Fetches /listing-history to find which (listing, account) pairs failed,
+ * then renders retry cards with a "Retry on this account" button for each.
+ *
+ * The retry button calls runSingleListingAPI() with the full listing data
+ * and the specific target account — so only THAT listing on THAT account
+ * is opened and posted, without touching any other account.
+ */
+async function renderMissedListingsPanel() {
+  const panel = document.getElementById('missed-listings-panel');
+  if (!panel) return;
+
+  panel.innerHTML = '<div style="color:var(--text-muted);padding:8px;">Loading missed listings...</div>';
+
+  let history = {};
+  try {
+    const res = await fetchListingHistoryAPI();
+    history = (res && res.history) ? res.history : {};
+  } catch (e) {
+    panel.innerHTML = '<div style="color:var(--text-muted);padding:8px;">Could not load history. Make sure the bot server is running.</div>';
+    return;
+  }
+
+  // history structure: { "listingTitle": { "account@email.com": { "status": "failed"|"success", "timestamp": "...", "listing_data": {...} } } }
+  const missedItems = [];
+  for (const [title, accountMap] of Object.entries(history)) {
+    if (!accountMap || typeof accountMap !== 'object') continue;
+    for (const [account, entry] of Object.entries(accountMap)) {
+      if (entry && entry.status === 'failed') {
+        missedItems.push({ title, account, entry });
+      }
+    }
+  }
+
+  if (missedItems.length === 0) {
+    panel.innerHTML = '<div class="monitor-empty-state">No missed listings found. All listings were posted successfully, or no history recorded yet.</div>';
+    return;
+  }
+
+  panel.innerHTML = '';
+  const header = document.createElement('div');
+  header.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;';
+  header.textContent = `${missedItems.length} missed listing(s) found — click Retry to post each one now.`;
+  panel.appendChild(header);
+
+  missedItems.forEach(({ title, account, entry }) => {
+    const card = document.createElement('div');
+    card.className = 'missed-listing-card';
+    card.style.cssText = 'background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+
+    const info = document.createElement('div');
+    info.style.flex = '1';
+    const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Unknown time';
+    const reason = entry.reason ? `<div style="font-size:11px;color:#f97316;margin-top:3px;">${escHtml(entry.reason)}</div>` : '';
+    info.innerHTML = `
+      <div style="font-weight:600;color:var(--text-primary);">${escHtml(title)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Account: <strong>${escHtml(account)}</strong></div>
+      <div style="font-size:11px;color:var(--text-muted);">Failed at: ${ts}</div>
+      ${reason}
+    `;
+
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'btn btn-primary';
+    retryBtn.style.cssText = 'min-width:110px;white-space:nowrap;';
+    retryBtn.textContent = 'Retry Now';
+    retryBtn.onclick = async () => {
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Sending...';
+      try {
+        // Use the stored listing_data if available, otherwise build a minimal one
+        const listingData = (entry.listing_data && typeof entry.listing_data === 'object')
+          ? entry.listing_data
+          : { title: title, images: [], price: '0', category: '', condition: '', availability: '', description: '', tags: [], location: '' };
+
+        const res = await runSingleListingAPI(listingData, account);
+        if (res && res.status === 'started') {
+          retryBtn.textContent = 'Started!';
+          retryBtn.style.background = '#22c55e';
+          card.style.borderColor = '#22c55e44';
+          // Start live status polling so the user can see it running
+          if (typeof startLiveStatusPolling === 'function') startLiveStatusPolling();
+        } else {
+          retryBtn.textContent = 'Error';
+          retryBtn.style.background = '#ef4444';
+          retryBtn.disabled = false;
+        }
+      } catch (err) {
+        retryBtn.textContent = 'Error';
+        retryBtn.style.background = '#ef4444';
+        retryBtn.disabled = false;
+        console.error('Retry error:', err);
+        alert('Retry failed: ' + err.message);
+      }
+    };
+
+    card.appendChild(info);
+    card.appendChild(retryBtn);
+    panel.appendChild(card);
+  });
+}
+
+/** Escape HTML special chars to prevent XSS in dynamically built HTML */
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/**
+ * Hook into tab switching — refresh missed listings panel when Live Monitor tab is opened.
+ * We wrap the existing switchTab function.
+ */
+(function patchSwitchTab() {
+  const original = window.switchTab;
+  if (typeof original !== 'function') return;
+  window.switchTab = function(tabId) {
+    original(tabId);
+    if (tabId === 'tab-monitor') {
+      // Refresh missed listings panel whenever user opens the monitor tab
+      renderMissedListingsPanel();
+    }
+  };
+})();
+
+/** Allow manual refresh from a "Refresh" button in the panel */
+function refreshMissedListings() {
+  renderMissedListingsPanel();
+}

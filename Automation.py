@@ -14,23 +14,6 @@ if sys.platform == "win32":
 from selenium.webdriver.common.keys import Keys
 import pyperclip
 from Assets.Utils.ImageHandling.Handle_image import anti_fingerprint_image
-from intervention_detector import intervention_detector
-
-def check_listing_intervention(stop_event=None, on_status=None):
-    """
-    Checks if a human intervened during listing placement.
-    If human input was detected, pauses immediately and waits
-    for 30 seconds of continuous human inactivity.
-    """
-    if intervention_detector.is_human_active(threshold_seconds=1.5):
-        print("👤 Human intervention detected during listing placement! Yielding control...")
-        return intervention_detector.wait_for_inactivity(
-            required_idle_seconds=30,
-            stop_event=stop_event,
-            context_label="Listing Placement",
-            on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None
-        )
-    return True
 
 _paste_lock = threading.Lock()
 
@@ -57,7 +40,6 @@ def safe_paste(driver, element, text):
     Uses native OS clipboard paste and human keystroke simulation to ensure
     all input events carry `isTrusted: true` and avoid Meta's anti-bot synthetic event triggers.
     """
-    check_listing_intervention()
     with _paste_lock:
         try:
             # 1. Focus element
@@ -221,254 +203,165 @@ def find_and_click_button(driver, label_names, timeout=60):
 
 
 
-def simulate_random_human_activity(
-    driver,
-    stop_event=None,
-    total_target_seconds=None,
-    email=None,
-    on_status=None
-):
+def simulate_random_human_activity(driver, stop_event=None):
+
     """
-    Simulates highly natural, extended human post-listing browsing.
-    Runs for 30-40 minutes (1800-2400 seconds) by default per Requirements Document.
-    Chains random activities (Home feed, Reels, Watch, Groups, Marketplace browsing)
-    with increased duration of several minutes each.
-
-    Includes Human Intervention Detection:
-    - If user moves mouse or presses keys, yields immediately.
-    - Waits for 60 seconds of continuous inactivity before resuming.
-    - If user interacts again during the 60s wait, the timer resets.
+    Simulates highly natural, randomized human post-listing browsing.
+    Chains 2-4 random activities (Home feed, Reels, Watch, Groups, Marketplace browsing)
+    for a total of 60-180 seconds with variable scroll speeds, direction reversals,
+    and natural pauses between activities.
     """
-    if total_target_seconds is None:
-        total_target_seconds = random.randint(1800, 2400)  # 30-40 minutes
-
-    mins_total = int(total_target_seconds // 60)
-    print(f"🎭 Starting post-listing extended human simulation (~{mins_total} minutes)...")
-    if on_status:
-        on_status(f"Starting simulation (~{mins_total}m)...", total_target_seconds)
-
+    print("🎭 Starting post-listing randomized human simulation...")
+    total_target_seconds = random.randint(60, 180)
     start_time = time.time()
 
     # 1. Brief initial pause on current page (like a human admiring their post)
     initial_pause = random.uniform(4.0, 10.0)
     time.sleep(initial_pause)
 
+    # Pick 2-4 random activities to chain together
     all_modes = ["HOME_FEED", "REELS", "WATCH", "GROUPS", "MARKETPLACE_BROWSE"]
+    num_activities = random.randint(2, 4)
+    chosen_modes = random.sample(all_modes, min(num_activities, len(all_modes)))
 
-    while time.time() - start_time < total_target_seconds:
+    for mode_idx, mode in enumerate(chosen_modes):
+        if time.time() - start_time >= total_target_seconds:
+            break
         if stop_event and stop_event.is_set():
             break
 
-        mode = random.choice(all_modes)
         remaining_total = total_target_seconds - (time.time() - start_time)
         if remaining_total <= 5:
             break
 
-        # Each activity runs for 3 to 7 minutes
-        activity_duration = min(random.uniform(180, 420), remaining_total - 5)
+        # Divide remaining time roughly among remaining activities
+        remaining_activities = len(chosen_modes) - mode_idx
+        activity_budget = remaining_total / remaining_activities
+        # Add some randomness so each activity isn't the same length
+        activity_duration = activity_budget * random.uniform(0.6, 1.4)
+        activity_duration = max(15, min(activity_duration, remaining_total - 5))
         activity_end = time.time() + activity_duration
-
-        mins_rem = int(remaining_total // 60)
-        secs_rem = int(remaining_total % 60)
-        status_msg = f"Simulating: {mode} ({mins_rem}m {secs_rem}s remaining)"
-        print(f"🎭 [{mode}] Running for ~{int(activity_duration // 60)}m ({mins_rem}m total remaining)...")
-        if on_status:
-            on_status(status_msg, int(remaining_total))
-
-        # Check for human intervention before starting activity
-        if intervention_detector.is_human_active(threshold_seconds=1.5):
-            print("👤 Human activity detected! Yielding simulation control to human...")
-            if on_status:
-                on_status("Human active — waiting 60s inactivity", 60)
-            if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label=f"Simulation ({mode})", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                break
 
         try:
             if mode == "HOME_FEED":
+                print(f"🏠 [Simulation] Browsing Home feed for ~{int(activity_duration)}s...")
                 driver.get("https://www.facebook.com")
                 time.sleep(random.uniform(3.0, 6.0))
 
                 while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if intervention_detector.is_human_active(threshold_seconds=1.5):
-                        print("👤 Human activity detected during Home Feed! Pausing...")
-                        if on_status:
-                            on_status("Human active — waiting 60s inactivity", 60)
-                        if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label="Home Feed Simulation", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                            break
-
-                    rem_sec = int(total_target_seconds - (time.time() - start_time))
-                    if rem_sec > 0 and on_status and rem_sec % 10 == 0:
-                        m, s = divmod(rem_sec, 60)
-                        on_status(f"Browsing Home Feed ({m}m {s}s remaining)", rem_sec)
-
+                    # Scroll down a few times
                     scroll_count = random.randint(2, 5)
                     for _ in range(scroll_count):
-                        if time.time() >= activity_end or (stop_event and stop_event.is_set()):
-                            break
-                        if intervention_detector.is_human_active(threshold_seconds=1.5):
+                        if time.time() >= activity_end:
                             break
                         try:
                             driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                         except Exception:
                             pass
-                        time.sleep(random.uniform(2.0, 4.5))
+                        time.sleep(random.uniform(1.5, 3.5))
 
-                    time.sleep(random.uniform(5.0, 15.0))
+                    # Pause like reading a post
+                    time.sleep(random.uniform(3.0, 8.0))
 
+                    # Occasional scroll back up (like re-reading something)
                     if random.random() < 0.35:
                         scroll_up_count = random.randint(1, 3)
                         for _ in range(scroll_up_count):
-                            if intervention_detector.is_human_active(threshold_seconds=1.5):
-                                break
                             try:
                                 driver.find_element("tag name", "body").send_keys(Keys.PAGE_UP)
                             except Exception:
                                 pass
-                            time.sleep(random.uniform(1.5, 3.0))
-                        time.sleep(random.uniform(3.0, 7.0))
+                            time.sleep(random.uniform(1.0, 2.5))
+                        time.sleep(random.uniform(2.0, 5.0))
 
             elif mode == "REELS":
+                print(f"🎬 [Simulation] Watching Reels for ~{int(activity_duration)}s...")
                 driver.get("https://www.facebook.com/reels/")
                 time.sleep(random.uniform(4.0, 7.0))
 
                 while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if intervention_detector.is_human_active(threshold_seconds=1.5):
-                        print("👤 Human activity detected during Reels! Pausing...")
-                        if on_status:
-                            on_status("Human active — waiting 60s inactivity", 60)
-                        if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label="Reels Simulation", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                            break
-
-                    rem_sec = int(total_target_seconds - (time.time() - start_time))
-                    if rem_sec > 0 and on_status and rem_sec % 10 == 0:
-                        m, s = divmod(rem_sec, 60)
-                        on_status(f"Watching Reels ({m}m {s}s remaining)", rem_sec)
-
-                    watch_time = random.uniform(15.0, 45.0)
+                    # Watch a reel for 8-20 seconds
+                    watch_time = random.uniform(8.0, 20.0)
                     sub_end = min(time.time() + watch_time, activity_end)
                     while time.time() < sub_end:
                         if stop_event and stop_event.is_set():
                             break
-                        if intervention_detector.is_human_active(threshold_seconds=1.5):
-                            break
                         time.sleep(0.5)
-
+                    # Swipe to next reel
                     try:
                         driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                     except Exception:
                         pass
-                    time.sleep(random.uniform(2.0, 5.0))
+                    time.sleep(random.uniform(1.0, 3.0))
 
             elif mode == "WATCH":
+                print(f"📺 [Simulation] Browsing Facebook Watch for ~{int(activity_duration)}s...")
                 driver.get("https://www.facebook.com/watch")
                 time.sleep(random.uniform(4.0, 6.0))
 
                 while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if intervention_detector.is_human_active(threshold_seconds=1.5):
-                        print("👤 Human activity detected during Watch! Pausing...")
-                        if on_status:
-                            on_status("Human active — waiting 60s inactivity", 60)
-                        if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label="Watch Simulation", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                            break
-
-                    rem_sec = int(total_target_seconds - (time.time() - start_time))
-                    if rem_sec > 0 and on_status and rem_sec % 10 == 0:
-                        m, s = divmod(rem_sec, 60)
-                        on_status(f"Facebook Watch ({m}m {s}s remaining)", rem_sec)
-
-                    time.sleep(random.uniform(10.0, 25.0))
+                    # Watch for a bit then scroll
+                    time.sleep(random.uniform(5.0, 12.0))
                     try:
                         driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                     except Exception:
                         pass
-                    time.sleep(random.uniform(3.0, 6.0))
+                    time.sleep(random.uniform(2.0, 4.0))
 
             elif mode == "GROUPS":
+                print(f"👥 [Simulation] Browsing Groups feed for ~{int(activity_duration)}s...")
                 driver.get("https://www.facebook.com/groups/feed/")
                 time.sleep(random.uniform(4.0, 6.0))
 
                 while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if intervention_detector.is_human_active(threshold_seconds=1.5):
-                        print("👤 Human activity detected during Groups! Pausing...")
-                        if on_status:
-                            on_status("Human active — waiting 60s inactivity", 60)
-                        if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label="Groups Simulation", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                            break
-
-                    rem_sec = int(total_target_seconds - (time.time() - start_time))
-                    if rem_sec > 0 and on_status and rem_sec % 10 == 0:
-                        m, s = divmod(rem_sec, 60)
-                        on_status(f"Browsing Groups ({m}m {s}s remaining)", rem_sec)
-
                     scroll_count = random.randint(1, 3)
                     for _ in range(scroll_count):
-                        if time.time() >= activity_end or (stop_event and stop_event.is_set()):
-                            break
-                        if intervention_detector.is_human_active(threshold_seconds=1.5):
+                        if time.time() >= activity_end:
                             break
                         try:
                             driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                         except Exception:
                             pass
                         time.sleep(random.uniform(2.0, 4.0))
-                    time.sleep(random.uniform(5.0, 12.0))
+                    time.sleep(random.uniform(3.0, 7.0))
 
             elif mode == "MARKETPLACE_BROWSE":
+                print(f"🛒 [Simulation] Browsing Marketplace for ~{int(activity_duration)}s...")
                 driver.get("https://www.facebook.com/marketplace/")
                 time.sleep(random.uniform(4.0, 7.0))
 
                 while time.time() < activity_end:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if intervention_detector.is_human_active(threshold_seconds=1.5):
-                        print("👤 Human activity detected during Marketplace Browse! Pausing...")
-                        if on_status:
-                            on_status("Human active — waiting 60s inactivity", 60)
-                        if not intervention_detector.wait_for_inactivity(60, stop_event=stop_event, context_label="Marketplace Simulation", on_status=lambda msg, rem: on_status(msg, int(rem)) if on_status else None):
-                            break
-
-                    rem_sec = int(total_target_seconds - (time.time() - start_time))
-                    if rem_sec > 0 and on_status and rem_sec % 10 == 0:
-                        m, s = divmod(rem_sec, 60)
-                        on_status(f"Marketplace Browsing ({m}m {s}s remaining)", rem_sec)
-
                     scroll_count = random.randint(2, 4)
                     for _ in range(scroll_count):
-                        if time.time() >= activity_end or (stop_event and stop_event.is_set()):
-                            break
-                        if intervention_detector.is_human_active(threshold_seconds=1.5):
+                        if time.time() >= activity_end:
                             break
                         try:
                             driver.find_element("tag name", "body").send_keys(Keys.PAGE_DOWN)
                         except Exception:
                             pass
-                        time.sleep(random.uniform(2.0, 4.5))
-                    time.sleep(random.uniform(4.0, 10.0))
+                        time.sleep(random.uniform(1.5, 3.5))
+                    time.sleep(random.uniform(3.0, 6.0))
 
         except Exception as e:
             print(f"Note during simulation ({mode}): {e}")
 
-        # Brief transition pause between activities
-        transition_pause = random.uniform(3.0, 8.0)
-        time.sleep(transition_pause)
+        # Brief transition pause between activities (like a human deciding what to do next)
+        if mode_idx < len(chosen_modes) - 1 and time.time() - start_time < total_target_seconds:
+            transition_pause = random.uniform(2.0, 5.0)
+            time.sleep(transition_pause)
 
     elapsed = int(time.time() - start_time)
-    print(f"✨ Extended post-listing human simulation complete ({elapsed // 60}m {elapsed % 60}s).")
-    if on_status:
-        on_status("Simulation complete ✅", 0)
+    print(f"✨ Post-listing human simulation complete ({elapsed}s across {len(chosen_modes)} activities).")
 
 
 def check_account_health_and_previous_listing(driver):
@@ -536,7 +429,6 @@ def go_to_items(
 ):
     print(f"📍 Location setting: {marketplace_location}")
     check_policy_keywords(title, description, price)
-    check_listing_intervention()
     try:
 
 
@@ -585,7 +477,6 @@ def go_to_items(
                 driver.execute_script("arguments[0].scrollTop -= 500;", box)
             except Exception:
                 pass    
-        check_listing_intervention()
         if marketplace_location=="UK":
             try:
                 category_element = driver.find_element("xpath", "//label[contains(normalize-space(.), 'Category')]//input | //input[contains(@aria-label, 'Category')]")
@@ -701,7 +592,6 @@ def go_to_items(
         except Exception as e:
             print(f"Tags input error: {e}")
 
-        check_listing_intervention()
         try:
             location_element = driver.find_element("xpath", "//label[contains(normalize-space(.), 'Location')]")
             location_input = location_element.find_element("tag name", "input")
@@ -794,7 +684,6 @@ def go_to_items(
                 price_element = None
         if not price_element:
             price_element = driver.find_element("xpath", "/html/body/div[1]/div/div[1]/div/div[3]/div/div/div[1]/div[1]/div[1]/div/div[3]/div[1]/div[2]/div/div/div[6]/div/div/div/label/div/input")
-        check_listing_intervention()
         price_element.click()
         price_element.send_keys(price)
         time.sleep(random.randint(10,15))
@@ -871,7 +760,6 @@ def go_to_items(
                 pass
         time.sleep(random.randint(2,5))
 
-        check_listing_intervention()
         for image_path in images:
             try:
                 # Anti-fingerprint photo before upload
@@ -895,22 +783,206 @@ def go_to_items(
         # Explicitly wait for image/video upload to complete before proceeding
         wait_for_media_upload(driver, max_wait=90)
 
-        # 1. Click Next
-        check_listing_intervention()
-        print("▶ Clicking 'Next' button...")
-        next_success = find_and_click_button(driver, ["Next", "next"], timeout=60)
-        if not next_success:
-            print("⚠️ Could not find or click enabled 'Next' button after 60s timeout!")
-            return False
+        # Multi-window wizard loop (handles standard 2-window and alternate 3-window / split flows)
+        wizard_step = 1
+        max_wizard_steps = 6
 
-        time.sleep(random.randint(6, 10))
+        while wizard_step <= max_wizard_steps:
+            print(f"📋 [Wizard Step {wizard_step}] Inspecting screen and navigation buttons...")
+            time.sleep(random.randint(4, 6))
 
-        # 2. Click Publish
-        check_listing_intervention()
-        print("📤 Clicking 'Publish' button...")
-        publish_success = find_and_click_button(driver, ["Publish", "publish"], timeout=60)
-        if not publish_success:
-            print("⚠️ Could not find or click enabled 'Publish' button after 60s timeout!")
+            # Fill any form fields that appear on this step (handles Facebook split layouts)
+            try:
+                # 1. Title if empty
+                try:
+                    t_inputs = driver.find_elements("xpath", "//input[contains(@placeholder,'Title') or contains(@aria-label,'Title')] | //label[contains(normalize-space(.), 'Title')]//input")
+                    for inp in t_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and title:
+                                print(f"Filling Title on step {wizard_step}...")
+                                safe_paste(driver, inp, title)
+                except Exception:
+                    pass
+
+                # 2. Price if empty
+                try:
+                    p_inputs = driver.find_elements("xpath", "//input[contains(@placeholder,'Price') or contains(@aria-label,'Price')] | //label[contains(normalize-space(.), 'Price')]//input")
+                    for inp in p_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and price:
+                                print(f"Filling Price on step {wizard_step}...")
+                                inp.click()
+                                inp.send_keys(Keys.CONTROL + 'a')
+                                inp.send_keys(Keys.BACKSPACE)
+                                inp.send_keys(str(price))
+                except Exception:
+                    pass
+
+                # 3. Category if empty
+                try:
+                    cat_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Category')]//input | //input[contains(@aria-label, 'Category')]")
+                    for inp in cat_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and category:
+                                print(f"Filling Category on step {wizard_step}...")
+                                inp.click()
+                                inp.send_keys(category)
+                                time.sleep(random.randint(3, 5))
+                                suggs = driver.find_elements("xpath", "//ul[@role='listbox']//li | //div[@role='listbox']//div[@role='option']")
+                                if suggs:
+                                    suggs[0].click()
+                except Exception:
+                    pass
+
+                # 4. Condition if empty
+                try:
+                    c_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Condition')]")
+                    for inp in c_inputs:
+                        if inp.is_displayed():
+                            cur = inp.text or inp.get_attribute("value") or ""
+                            if condition.lower() not in cur.lower() and condition:
+                                print(f"Selecting Condition on step {wizard_step}...")
+                                inp.click()
+                                time.sleep(random.randint(2, 4))
+                                opts = driver.find_elements("xpath", "//div[@role='listbox']//div | //ul[@role='listbox']//li")
+                                target = condition.lower().strip()
+                                for opt in opts:
+                                    if target in opt.text.lower():
+                                        opt.click()
+                                        break
+                except Exception:
+                    pass
+
+                # 5. Description if empty
+                try:
+                    d_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Description')]//textarea | //textarea[contains(@placeholder, 'Description') or contains(@aria-label, 'Description')]")
+                    for inp in d_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and description:
+                                print(f"Filling Description on step {wizard_step}...")
+                                safe_paste(driver, inp, description)
+                except Exception:
+                    pass
+
+                # 6. Availability if empty
+                try:
+                    a_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Availability')]")
+                    for inp in a_inputs:
+                        if inp.is_displayed():
+                            cur = inp.text or inp.get_attribute("value") or ""
+                            if availability.lower() not in cur.lower() and availability:
+                                print(f"Selecting Availability on step {wizard_step}...")
+                                inp.click()
+                                time.sleep(random.randint(2, 3))
+                                opts = driver.find_elements("xpath", "//div[@role='listbox']//div | //ul[@role='listbox']//li")
+                                for opt in opts:
+                                    if availability.lower() in opt.text.lower():
+                                        opt.click()
+                                        break
+                except Exception:
+                    pass
+
+                # 7. Product tags if empty
+                try:
+                    tag_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Product tags')]//textarea | //textarea[contains(@aria-label, 'Product tags')]")
+                    for inp in tag_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and product_tags:
+                                print(f"Filling Product Tags on step {wizard_step}...")
+                                inp.click()
+                                inp.send_keys(", ".join(product_tags))
+                                inp.send_keys(Keys.ENTER)
+                except Exception:
+                    pass
+
+                # 8. Location if empty
+                try:
+                    loc_inputs = driver.find_elements("xpath", "//label[contains(normalize-space(.), 'Location')]//input | //input[contains(@aria-label, 'Location') or contains(@placeholder, 'Location')]")
+                    for inp in loc_inputs:
+                        if inp.is_displayed():
+                            cur = inp.get_attribute("value") or ""
+                            if not cur.strip() and location:
+                                print(f"Filling Location on step {wizard_step}...")
+                                inp.click()
+                                inp.clear()
+                                inp.send_keys(Keys.CONTROL + 'a')
+                                inp.send_keys(Keys.BACKSPACE)
+                                inp.send_keys(location)
+                                time.sleep(random.randint(3, 5))
+                                suggs = driver.find_elements("xpath", "//ul[@role='listbox']//li | //div[@role='listbox']//div[@role='option']")
+                                if suggs:
+                                    suggs[0].click()
+                except Exception:
+                    pass
+
+            except Exception as e:
+                print(f"Notice while verifying fields on step {wizard_step}: {e}")
+
+            time.sleep(2)
+
+            # Scroll down to ensure navigation button is in view
+            for box in outside_box:
+                try:
+                    driver.execute_script("arguments[0].scrollTop += 800;", box)
+                except Exception:
+                    pass
+            time.sleep(random.randint(2, 4))
+
+            # Check if Publish button is present and enabled
+            publish_btns = driver.find_elements("xpath", "//div[@role='button' and (normalize-space(.)='Publish' or normalize-space(.)='publish' or contains(@aria-label, 'Publish'))] | //button[normalize-space(.)='Publish' or contains(@aria-label, 'Publish')]")
+            publish_clickable = None
+            for pb in publish_btns:
+                if pb.is_displayed():
+                    aria_dis = pb.get_attribute("aria-disabled")
+                    if aria_dis != "true" and pb.get_attribute("disabled") is None:
+                        publish_clickable = pb
+                        break
+
+            if publish_clickable:
+                print(f"📤 [Step {wizard_step}] Found enabled 'Publish' button! Clicking to publish...")
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", publish_clickable)
+                    time.sleep(0.3)
+                    publish_clickable.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", publish_clickable)
+                break
+
+            # If no Publish button or Publish is disabled, check for Next button
+            next_btns = driver.find_elements("xpath", "//div[@role='button' and (normalize-space(.)='Next' or normalize-space(.)='next' or contains(@aria-label, 'Next'))] | //button[normalize-space(.)='Next' or contains(@aria-label, 'Next')]")
+            next_clickable = None
+            for nb in next_btns:
+                if nb.is_displayed():
+                    aria_dis = nb.get_attribute("aria-disabled")
+                    if aria_dis != "true" and nb.get_attribute("disabled") is None:
+                        next_clickable = nb
+                        break
+
+            if next_clickable:
+                print(f"▶ [Step {wizard_step}] Found enabled 'Next' button! Clicking to move to next window...")
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_clickable)
+                    time.sleep(0.3)
+                    next_clickable.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", next_clickable)
+
+                wizard_step += 1
+                time.sleep(random.randint(4, 7))
+                continue
+
+            # If neither an enabled Publish nor enabled Next button was found, wait briefly and retry checking
+            print(f"⏳ [Step {wizard_step}] Waiting for Next/Publish button to become enabled...")
+            time.sleep(3)
+            wizard_step += 1
+
+        if wizard_step > max_wizard_steps and not publish_clickable:
+            print("⚠️ Wizard did not find enabled Publish button after all steps.")
             return False
 
         # 3. Wait for Facebook to finish submitting the post (do NOT kill Chrome early!)

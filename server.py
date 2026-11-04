@@ -29,7 +29,9 @@ from save_state_screen import get_failed_fields, run_bot
 from Open_fb import (
     main as run_fb_bot,
     distribute_among_accounts,
-    get_live_bot_state
+    get_live_bot_state,
+    load_listing_history,
+    run_single_listing_to_account,
 )
 from renew import main as renew_main
 from save_state_screen import main as save_state_main
@@ -149,6 +151,12 @@ class BotRunRequest(BaseModel):
     wait_for_review: bool = False
     max_concurrent_browsers: int = 2
     review_timeout_mins: int = 30
+
+
+class SingleListingRunRequest(BaseModel):
+    listing: ListingItem
+    target_account: str   # email or phone that identifies the Chrome profile
+    marketplace: str = "UK"
 
 
 class CountRequest(BaseModel):
@@ -276,16 +284,6 @@ def get_failed_fields_endpoint():
 current_background_tasks: list[threading.Thread] = []
 stop_event = threading.Event()
 
-@app.get("/ixbrowser/profiles")
-def api_ixbrowser_profiles():
-    """Returns detected ixBrowser profiles and API availability status."""
-    from ix_detector import ix_manager
-    return {
-        "api_available": ix_manager.is_api_available(),
-        "port": ix_manager.port,
-        "opened_profiles": ix_manager.get_opened_profiles()
-    }
-
 @app.get("/bot-status")
 def api_bot_status():
     """Returns real-time status of all active account workers and queue metrics."""
@@ -384,6 +382,57 @@ def api_image_usage():
         return load_image_usage_log()
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/run-single-listing")
+def api_run_single_listing(req: SingleListingRunRequest):
+    """Post one specific listing to one specific Facebook account (Chrome profile).
+    This lets the user retry a missed listing for a particular account without
+    launching a full bulk run.
+    """
+    global current_background_tasks, stop_event
+    stop_event.clear()
+
+    from Open_fb import LIVE_BOT_STATE, _status_lock, log_live_message
+    with _status_lock:
+        LIVE_BOT_STATE["status"] = "starting"
+
+    adapted = EntryAdapter(req.listing.dict())
+
+    def _task():
+        try:
+            run_single_listing_to_account(
+                entry=adapted,
+                target_account=req.target_account,
+                marketplace_location=req.marketplace,
+                stop_event=stop_event,
+            )
+        except Exception as e:
+            print(f"🚨 Error in single-listing task: {e}")
+            from Open_fb import LIVE_BOT_STATE, _status_lock, log_live_message
+            log_live_message(f"🚨 Single listing task error: {e}")
+        finally:
+            from Open_fb import LIVE_BOT_STATE, _status_lock
+            with _status_lock:
+                LIVE_BOT_STATE["status"] = "idle"
+
+    t = threading.Thread(target=_task, daemon=True)
+    current_background_tasks.append(t)
+    t.start()
+    return {
+        "status": "started",
+        "message": f"Targeted single listing on '{req.target_account}' started.",
+    }
+
+
+@app.get("/listing-history")
+def api_listing_history():
+    """Returns the full history of which listing was posted to which account and when."""
+    try:
+        history = load_listing_history()
+        return {"status": "success", "history": history}
+    except Exception as e:
+        return {"status": "error", "history": {}, "detail": str(e)}
+
 
 @app.post("/run-bot")
 def api_run_bot(req: BotRunRequest):
@@ -504,23 +553,16 @@ class LoginSessionRequest(BaseModel):
 
 @app.get("/accounts")
 def get_accounts():
-    from ix_detector import ix_manager
-    profiles = ix_manager.get_all_detected_profiles()
+    from login_profile import load_emails_df, is_account_authenticated
+    from account_names import get_account_fb_name
+    df = load_emails_df()
     accounts = []
-    for p in profiles:
-        is_open = bool(p.get("debugging_address"))
-        accounts.append({
-            "email": p.get("name"),
-            "phone": f"Profile {p.get('profile_id')}",
-            "password": "",
-            "proxy": "",
-            "authenticated": is_open,
-            "status": "🟢 Open on Taskbar" if is_open else "🟡 Offline (Click Open in ixBrowser)",
-            "fb_name": p.get("name"),
-            "profile_id": p.get("profile_id"),
-            "is_ix": True,
-            "debugging_address": p.get("debugging_address")
-        })
+    for row in df.to_dict(orient="records"):
+        email = row.get("email", "")
+        phone = row.get("phone", "")
+        row["authenticated"] = is_account_authenticated(email, phone)
+        row["fb_name"] = get_account_fb_name(email or phone)
+        accounts.append(row)
     return {"accounts": accounts}
 
 
