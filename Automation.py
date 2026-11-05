@@ -977,9 +977,9 @@ def go_to_items(
                 continue
 
             # If neither an enabled Publish nor enabled Next button was found, wait briefly and retry checking
-            print(f"⏳ [Step {wizard_step}] Waiting for Next/Publish button to become enabled...")
-            time.sleep(3)
-            wizard_step += 1
+            print(f"⏳ [Step {wizard_step}] Neither Next nor Publish enabled yet - waiting 5s before retrying same step...")
+            time.sleep(5)
+            # NOTE: do NOT increment wizard_step here - we retry the same step until a button appears
 
         if wizard_step > max_wizard_steps and not publish_clickable:
             print("⚠️ Wizard did not find enabled Publish button after all steps.")
