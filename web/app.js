@@ -630,6 +630,11 @@ function addField() {
   const container = document.getElementById(`images-container-${id}`);
   container.appendChild(buildImageRow(id, 0));
 
+  // Populate the new card's account dropdown immediately
+  if (typeof populateCardAccountDropdowns === 'function') {
+    populateCardAccountDropdowns();
+  }
+
   updateCount();
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   triggerAutoSave();
@@ -2077,3 +2082,83 @@ function escHtml(str) {
 function refreshMissedListings() {
   renderMissedListingsPanel();
 }
+
+
+// ── Single-Account Post (Proactive) ─────────────────────────────────────────
+
+/** Cache of accounts fetched from /accounts */
+let _cachedAccounts = [];
+
+/**
+ * Fetch accounts and populate ALL target-account dropdowns on page.
+ * Called on page load and after any account change.
+ */
+async function populateCardAccountDropdowns() {
+  try {
+    const res = await fetchAccounts();
+    _cachedAccounts = res.accounts || [];
+  } catch (e) {
+    return;
+  }
+  // Populate every existing card dropdown
+  document.querySelectorAll('[id^="target-account-"]').forEach(sel => {
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">— Select account —</option>';
+    _cachedAccounts.forEach(acc => {
+      const opt = document.createElement('option');
+      opt.value = acc.email || acc.phone || '';
+      opt.textContent = acc.fb_name
+        ? `${acc.fb_name} (${acc.email || acc.phone})`
+        : (acc.email || acc.phone || '');
+      if (opt.value === currentVal) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+/**
+ * Post the listing from card `id` to the account chosen in its dropdown.
+ * Uses runSingleListingAPI() — opens one Chrome profile, posts one listing.
+ */
+async function postCardToAccount(id) {
+  const sel = document.getElementById(`target-account-${id}`);
+  const statusEl = document.getElementById(`single-post-status-${id}`);
+  const targetAccount = sel ? sel.value : '';
+
+  if (!targetAccount) {
+    if (statusEl) { statusEl.textContent = 'Please select an account first.'; statusEl.style.color = '#f97316'; }
+    return;
+  }
+
+  const listingData = collectEntryData(entries.find(e => e.id === id));
+  if (!listingData || !listingData.title) {
+    if (statusEl) { statusEl.textContent = 'Please fill in at least a Title.'; statusEl.style.color = '#f97316'; }
+    return;
+  }
+
+  if (statusEl) { statusEl.textContent = 'Starting...'; statusEl.style.color = 'var(--accent-blue)'; }
+  const btn = sel.nextElementSibling;
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await runSingleListingAPI(listingData, targetAccount);
+    if (res && res.status === 'started') {
+      if (statusEl) { statusEl.textContent = 'Bot started! Check Live Monitor tab.'; statusEl.style.color = '#22c55e'; }
+      if (typeof startLiveStatusPolling === 'function') startLiveStatusPolling();
+    } else {
+      if (statusEl) { statusEl.textContent = 'Error starting bot.'; statusEl.style.color = '#ef4444'; }
+      if (btn) btn.disabled = false;
+    }
+  } catch (err) {
+    if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
+    if (btn) btn.disabled = false;
+  }
+
+  // Re-enable after 10 seconds so user can retry
+  setTimeout(() => { if (btn) btn.disabled = false; }, 10000);
+}
+
+// Auto-populate dropdowns when page loads
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(populateCardAccountDropdowns, 1500);
+});
