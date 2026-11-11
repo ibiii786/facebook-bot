@@ -1079,9 +1079,18 @@ def api_media_preview(path: str = Query(...)):
 
 
 # ── Serve Static Web Frontend ───────────────────────────────────────────────
+# Custom StaticFiles to ensure no caching of UI assets across bot updates
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
 web_dir = os.path.join(os.path.dirname(__file__), "web")
 if os.path.exists(web_dir):
-    app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
+    app.mount("/", NoCacheStaticFiles(directory=web_dir, html=True), name="web")
 
 
 if __name__ == "__main__":

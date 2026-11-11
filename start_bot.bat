@@ -50,10 +50,18 @@ if %errorlevel% neq 0 (
     call %PY_RUN% -m pip install -r requirements.txt
 )
 
-:: 3. Automatically open browser after 2 seconds
-start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8000"
+:: 3. Kill any old bot process already running on port 8000
+echo [INFO] Checking for old bot process on port 8000...
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":8000 " ^| findstr "LISTENING"') do (
+    echo [INFO] Killing old process PID %%a on port 8000...
+    taskkill /PID %%a /F >nul 2>&1
+)
+timeout /t 1 /nobreak >nul
 
-:: 4. Launch server
+:: 4. Automatically open browser after 3 seconds (after server starts)
+start "" cmd /c "timeout /t 3 /nobreak >nul && start http://127.0.0.1:8000"
+
+:: 5. Launch server
 call %PY_RUN% server.py
 
 if %errorlevel% neq 0 (

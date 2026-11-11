@@ -33,6 +33,35 @@ saved_states_file = "saved_states.csv"
 FLAGGED_ACCOUNTS_FILE = "flagged_accounts.json"
 IMAGE_USAGE_LOG_FILE = "image_usage_log.json"
 COMPLETED_LOG_FILE = "completed_log.json"  # Permanent record — never deleted
+def _unpack_entry(entry):
+    """
+    Safely unpack an entry object (EntryAdapter or legacy tuple).
+    Returns individual field accessors regardless of format.
+    """
+    try:
+        (img_entries, title_entry, description_entry, category_entry, location_entry,
+         tags_entry, price_entry, condition_entry, availability_entry, video_entry,
+         wrapper, opt_vars) = entry
+        return (img_entries, title_entry, description_entry, category_entry, location_entry,
+                tags_entry, price_entry, condition_entry, availability_entry, video_entry,
+                wrapper, opt_vars)
+    except (TypeError, ValueError):
+        # Fallback: access by attribute (EntryAdapter style)
+        return (
+            getattr(entry, 'img_entries', []),
+            getattr(entry, 'title_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'description_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'category_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'location_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'tags_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'price_entry', type('G', (), {'get': lambda self, *a: '0'})()),
+            getattr(entry, 'condition_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'availability_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'video_entry', type('G', (), {'get': lambda self, *a: ''})()),
+            getattr(entry, 'wrapper', None),
+            getattr(entry, 'opt_vars', []),
+        )
+
 LISTING_HISTORY_FILE = "listing_history.json"  # Per-listing per-account history log
 
 _flag_lock = threading.Lock()
@@ -577,7 +606,7 @@ class AccountLifecycleWorker(threading.Thread):
                     display_id = self.fb_name or email
 
                     (img_entries, title_entry, description_entry, category_entry, location_entry,
-                     tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
+                     tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = _unpack_entry(entry)
 
                     post_title = title_entry.get()
                     price = price_entry.get()
@@ -794,7 +823,7 @@ def run_single_listing_to_account(
             ACTIVE_DRIVERS.append(driver)
 
         (img_entries, title_entry, description_entry, category_entry, location_entry,
-         tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = entry
+         tags_entry, price_entry, condition_entry, availability_entry, video_entry, wrapper, opt_vars) = _unpack_entry(entry)
 
         post_title = title_entry.get()
         price = price_entry.get()
