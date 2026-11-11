@@ -1459,6 +1459,8 @@ function getFullSessionData() {
       waitUnit: document.getElementById('wait-unit')?.value || 'seconds',
       waitTimeAccount: document.getElementById('wait-value-account')?.value || '2',
       waitUnitAccount: document.getElementById('wait-unit-account')?.value || 'seconds',
+      waitTimeRound: document.getElementById('wait-value-round')?.value || '0',
+      waitUnitRound: document.getElementById('wait-unit-round')?.value || 'minutes',
     },
     defaults: {
       category: document.getElementById('default-category')?.value || 'Furniture',
@@ -1543,6 +1545,8 @@ function restoreFullSession(data) {
       set('wait-unit', data.settings.waitUnit);
       set('wait-value-account', data.settings.waitTimeAccount);
       set('wait-unit-account', data.settings.waitUnitAccount);
+      if (data.settings.waitTimeRound !== undefined) set('wait-value-round', data.settings.waitTimeRound);
+      if (data.settings.waitUnitRound !== undefined) set('wait-unit-round', data.settings.waitUnitRound);
     }
 
 
