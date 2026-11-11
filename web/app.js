@@ -1252,21 +1252,77 @@ function showCompletionBanner(hasFailures, failedVideos) {
 }
 
 function showFailedModal(failedVideos) {
-
   const container = document.getElementById('failed-list-content');
   container.innerHTML = '';
   for (const [key, items] of Object.entries(failedVideos)) {
     if (!items || items.length === 0) continue;
     const g = document.createElement('div');
     g.style.fontWeight = 'bold';
-    g.textContent = key + ':';
+    g.style.color = 'var(--text-primary)';
+    g.style.marginTop = '8px';
+    g.textContent = `Account: ${key}`;
     container.appendChild(g);
+
     items.forEach(item => {
-      const d = document.createElement('div');
-      d.style.color = 'var(--text-muted)';
-      d.style.paddingLeft = '12px';
-      d.textContent = item;
-      container.appendChild(d);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:var(--card-bg,#1e293b);padding:8px 12px;border-radius:6px;margin-top:4px;gap:8px;';
+
+      const label = document.createElement('span');
+      label.style.fontSize = '13px';
+      label.style.color = 'var(--text-muted)';
+      label.textContent = item;
+
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'btn btn-primary';
+      retryBtn.style.cssText = 'padding:4px 10px;font-size:12px;white-space:nowrap;';
+      retryBtn.textContent = '🎯 Retry on This Account';
+      retryBtn.onclick = async () => {
+        retryBtn.disabled = true;
+        retryBtn.textContent = 'Starting...';
+
+        // Find matching listing in UI entries or fallback
+        const cleanTitle = item.replace(/\s*\(🚨.*?\)/g, '').trim();
+        const found = entries.find(e => {
+          const t = document.getElementById(`title-${e.id}`)?.value?.trim() || '';
+          return t.toLowerCase() === cleanTitle.toLowerCase();
+        });
+
+        const listingData = found ? collectEntryData(found) : {
+          title: cleanTitle,
+          images: [],
+          price: '0',
+          category: 'Furniture',
+          condition: 'New',
+          availability: 'List as In Stock',
+          description: '',
+          tags: [],
+          location: ''
+        };
+
+        try {
+          const res = await runSingleListingAPI(listingData, key);
+          if (res && res.status === 'started') {
+            retryBtn.textContent = 'Started!';
+            retryBtn.style.background = '#22c55e';
+            closeModal('modal-failed');
+            switchTab('tab-monitor');
+            if (typeof startLiveStatusPolling === 'function') startLiveStatusPolling();
+          } else {
+            retryBtn.textContent = 'Failed';
+            retryBtn.style.background = '#ef4444';
+            retryBtn.disabled = false;
+          }
+        } catch (err) {
+          retryBtn.textContent = 'Error';
+          retryBtn.style.background = '#ef4444';
+          retryBtn.disabled = false;
+          alert('Retry error: ' + err.message);
+        }
+      };
+
+      row.appendChild(label);
+      row.appendChild(retryBtn);
+      container.appendChild(row);
     });
   }
   openModal('modal-failed');
@@ -2201,10 +2257,12 @@ function parseRawTitles(text) {
 
 /**
  * Intelligently extracts individual descriptions from raw input text.
- * Descriptions are multi-line paragraphs, so they can be separated by:
- * - Explicit delimiters (|||, ---)
- * - Blank lines (double newline)
- * - Leading numbering (e.g. "1.", "Description 1:")
+ * Multi-line paragraphs WITH spaces/blank lines are kept as a SINGLE description.
+ * Multiple descriptions are split ONLY when:
+ * - Separated by explicit delimiters: |||
+ * - Separated by horizontal line: ---
+ * - Explicitly numbered: e.g. "1.", "2.", "Description 1:", "Description 2:"
+ * If none of those delimiters exist, the entire text is treated as ONE description.
  */
 function parseRawDescriptions(text) {
   if (!text || !text.trim()) return [];
@@ -2215,40 +2273,41 @@ function parseRawDescriptions(text) {
     return raw.split('|||').map(s => s.trim().replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
   }
 
-  // 2. Explicit delimiter: ---
-  if (raw.includes('\n---\n') || raw.includes('\n---')) {
+  // 2. Explicit delimiter: line of ---
+  if (/\n\s*---+\s*\n?/.test(raw)) {
     return raw.split(/\n\s*---+\s*\n?/).map(s => s.trim().replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
   }
 
-  // 3. Double newline (blank line between blocks)
-  const blankLineChunks = raw.split(/\n\s*\n+/).map(c => c.trim()).filter(Boolean);
-  if (blankLineChunks.length > 1) {
-    return blankLineChunks.map(c => c.replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
-  }
-
-  // 4. Numbered blocks: look for lines starting with "1.", "2.", "Description 1:"
+  // 3. Numbered blocks: look for explicit markers like "1.", "2.", "Description 1:"
   const lines = raw.split('\n');
-  const blocks = [];
-  let currentBlock = [];
+  const hasNumberedMarkers = lines.filter(l => /^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i.test(l.trim())).length > 1;
 
-  for (let line of lines) {
-    const isNewBlock = /^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i.test(line.trim());
-    if (isNewBlock && currentBlock.length > 0) {
-      blocks.push(currentBlock.join('\n').trim());
-      currentBlock = [];
+  if (hasNumberedMarkers) {
+    const blocks = [];
+    let currentBlock = [];
+    for (let line of lines) {
+      const isNewBlock = /^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i.test(line.trim());
+      if (isNewBlock && currentBlock.length > 0) {
+        blocks.push(currentBlock.join('\n').trim());
+        currentBlock = [];
+      }
+      const cleanLine = line.replace(/^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i, '');
+      currentBlock.push(cleanLine);
     }
-    const cleanLine = line.replace(/^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i, '');
-    currentBlock.push(cleanLine);
-  }
-  if (currentBlock.length > 0) {
-    blocks.push(currentBlock.join('\n').trim());
+    if (currentBlock.length > 0) {
+      blocks.push(currentBlock.join('\n').trim());
+    }
+    return blocks.filter(Boolean);
   }
 
-  return blocks.filter(Boolean);
+  // 4. Default: The entire text (with all its internal blank lines and paragraphs) is ONE single description
+  return [raw];
 }
 
 /**
  * Validates counts and updates UI indicators live.
+ * Allows N titles with 1 description (the 1 description is reused for all titles),
+ * or N titles with N descriptions (1-to-1 matching).
  */
 function updateAutoParserCounts() {
   const titlesText = document.getElementById('auto-parser-titles')?.value || '';
@@ -2273,19 +2332,35 @@ function updateAutoParserCounts() {
     return;
   }
 
-  if (titles.length === descs.length && titles.length > 0) {
-    // Perfect Match
+  if (titles.length === 0 || descs.length === 0) {
+    if (badgeEl) { badgeEl.textContent = 'Incomplete'; badgeEl.style.background = '#f9731622'; badgeEl.style.color = '#f97316'; }
+    if (msgEl) { msgEl.textContent = 'Please provide both titles and description(s).'; msgEl.style.color = 'var(--text-muted)'; }
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '✨ Generate Listings (0)'; }
+    return;
+  }
+
+  // Case A: 1 description shared across all titles
+  if (descs.length === 1 && titles.length > 1) {
+    if (badgeEl) { badgeEl.textContent = `✅ 1 Desc for all ${titles.length} Titles`; badgeEl.style.background = '#22c55e22'; badgeEl.style.color = '#22c55e'; }
+    if (msgEl) { msgEl.textContent = `Ready! Single description will be applied to all ${titles.length} listings.`; msgEl.style.color = '#22c55e'; }
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = `✨ Generate ${titles.length} Listings (Shared Desc)`; }
+    return;
+  }
+
+  // Case B: Exactly equal count (1-to-1)
+  if (titles.length === descs.length) {
     if (badgeEl) { badgeEl.textContent = `✅ Matched (${titles.length} Listings)`; badgeEl.style.background = '#22c55e22'; badgeEl.style.color = '#22c55e'; }
     if (msgEl) { msgEl.textContent = `Ready! Exactly ${titles.length} titles and ${descs.length} descriptions matched.`; msgEl.style.color = '#22c55e'; }
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = `✨ Generate Listings (${titles.length})`; }
-  } else {
-    // Mismatch - Block Creation
-    const diff = Math.abs(titles.length - descs.length);
-    const issue = titles.length > descs.length ? `${diff} more title(s) than descriptions` : `${diff} more description(s) than titles`;
-    if (badgeEl) { badgeEl.textContent = `⚠️ Mismatch: ${titles.length} vs ${descs.length}`; badgeEl.style.background = '#ef444422'; badgeEl.style.color = '#ef4444'; }
-    if (msgEl) { msgEl.textContent = `Count mismatch (${issue}). Numbers must be equal to create listings.`; msgEl.style.color = '#ef4444'; }
-    if (btnEl) { btnEl.disabled = true; btnEl.textContent = `⚠️ Fix Mismatch (${titles.length} vs ${descs.length})`; }
+    return;
   }
+
+  // Case C: Mismatch (e.g. 5 titles and 3 descriptions)
+  const diff = Math.abs(titles.length - descs.length);
+  const issue = titles.length > descs.length ? `${diff} more title(s) than descriptions` : `${diff} more description(s) than titles`;
+  if (badgeEl) { badgeEl.textContent = `⚠️ Mismatch: ${titles.length} vs ${descs.length}`; badgeEl.style.background = '#ef444422'; badgeEl.style.color = '#ef4444'; }
+  if (msgEl) { msgEl.textContent = `Count mismatch (${issue}). Provide either 1 shared description or equal count for each title.`; msgEl.style.color = '#ef4444'; }
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = `⚠️ Fix Mismatch (${titles.length} vs ${descs.length})`; }
 }
 
 /**
@@ -2310,12 +2385,12 @@ function generateListingsFromAutoParser() {
   const descs = parseRawDescriptions(descsText);
 
   if (titles.length === 0 || descs.length === 0) {
-    alert('Please paste both titles and descriptions.');
+    alert('Please paste both titles and description(s).');
     return;
   }
 
-  if (titles.length !== descs.length) {
-    alert(`Cannot create listings: You have ${titles.length} titles and ${descs.length} descriptions. Both counts must be strictly equal.`);
+  if (descs.length !== 1 && titles.length !== descs.length) {
+    alert(`Cannot create listings: You have ${titles.length} titles and ${descs.length} descriptions. Provide either 1 description to share across all titles, or equal count.`);
     return;
   }
 
@@ -2330,9 +2405,10 @@ function generateListingsFromAutoParser() {
     const titleInput = document.getElementById(`title-${id}`);
     if (titleInput) titleInput.value = titles[i];
 
-    // 2. Description
+    // 2. Description (use 1 shared description if descs.length === 1, otherwise match 1-to-1)
     const descInput = document.getElementById(`desc-${id}`);
-    if (descInput) descInput.value = descs[i];
+    const assignedDesc = descs.length === 1 ? descs[0] : (descs[i] || descs[0]);
+    if (descInput) descInput.value = assignedDesc;
 
     // 3. Auto-assigned random price from range
     const priceInput = document.getElementById(`price-${id}`);

@@ -648,6 +648,7 @@ class AccountLifecycleWorker(threading.Thread):
                         log_live_message(f"✅ [{display_id}] Listing '{post_title}' published successfully!")
                         set_file_status(post_title, email)
                         record_completion(post_title, email)  # Permanent log — never wiped
+                        record_listing_history(post_title, email, "success", details="Published in orchestrator run", fb_name=self.fb_name)
                         # Record image usage for future deduplication
                         record_image_usage(images, email)
                         with _status_lock:
@@ -693,6 +694,7 @@ class AccountLifecycleWorker(threading.Thread):
                 err_short = title[:50]
                 log_live_message(f"💀 [{email}] All {MAX_RETRIES} attempts failed for '{err_short}'. Marking as failed.")
                 self.failed_listings.append(title)
+                record_listing_history(title, email, "failed", error="All retries exhausted", details=f"Failed in orchestrator after {MAX_RETRIES} attempts", fb_name=self.fb_name)
                 update_account_state(email, state="FAILED", details=f"All retries exhausted for '{err_short}'")
 
             # Release the concurrency semaphore slot (acquired once per listing at the top of the outer loop)
