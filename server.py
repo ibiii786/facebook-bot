@@ -147,6 +147,7 @@ class BotRunRequest(BaseModel):
     listings: List[ListingItem]
     wait_time: int = 1800
     wait_time_accounts: int = 300
+    wait_time_round: int = 0
     marketplace: str = "UK"
     wait_for_review: bool = False
     max_concurrent_browsers: int = 2
@@ -216,7 +217,8 @@ def run_bot_task(
     wait_time: int,
     wait_time_accounts: int,
     marketplace: str,
-    stop_event: threading.Event
+    stop_event: threading.Event,
+    wait_time_round: int = 0
 ):
     try:
         adapted_entries = [EntryAdapter(item) for item in entries_data]
@@ -225,7 +227,8 @@ def run_bot_task(
             time_sleep=wait_time,
             wait_time_accounts=wait_time_accounts,
             marketplace_location=marketplace,
-            stop_event=stop_event
+            stop_event=stop_event,
+            wait_time_round=wait_time_round
         )
     except Exception as e:
         print(f"🚨 Error in run_bot_task: {e}")
@@ -240,7 +243,8 @@ def run_distribute_task(
     wait_time: int,
     wait_time_accounts: int,
     marketplace: str,
-    stop_event: threading.Event
+    stop_event: threading.Event,
+    wait_time_round: int = 0
 ):
     try:
         adapted_entries = [EntryAdapter(item) for item in entries_data]
@@ -249,7 +253,8 @@ def run_distribute_task(
             time_sleep=wait_time,
             wait_time_accounts=wait_time_accounts,
             marketplace_location=marketplace,
-            stop_event=stop_event
+            stop_event=stop_event,
+            wait_time_round=wait_time_round
         )
     except Exception as e:
         print(f"🚨 Error in run_distribute_task: {e}")
@@ -452,7 +457,8 @@ def api_run_bot(req: BotRunRequest):
             req.wait_time,
             req.wait_time_accounts,
             req.marketplace,
-            stop_event
+            stop_event,
+            req.wait_time_round
         ),
         daemon=True,
     )
@@ -478,7 +484,8 @@ def api_distribute_bot(req: BotRunRequest):
             req.wait_time,
             req.wait_time_accounts,
             req.marketplace,
-            stop_event
+            stop_event,
+            req.wait_time_round
         ),
         daemon=True,
     )

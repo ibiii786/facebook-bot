@@ -158,6 +158,7 @@ async function runBot() {
       listings:           allListings,
       wait_time:          getWaitTimeSeconds(''),
       wait_time_accounts: getWaitTimeSeconds('-account'),
+      wait_time_round:    getWaitTimeSeconds('-round'),
       marketplace:        getMarketplace()
     };
     await apiPost('/run-bot', payload);

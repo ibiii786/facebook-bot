@@ -99,15 +99,27 @@
               </div>
             </div>
             <div class="form-group">
-              <label>Delay Between Accounts (Inter-Account Stagger)</label>
+              <label>Delay Between Accounts (Between IDs in Wave)</label>
               <div class="inline-inputs">
-                <input id="wait-value-account" class="input" type="number" min="0" max="120" value="5" />
+                <input id="wait-value-account" class="input" type="number" min="0" max="120" value="1" />
                 <select id="wait-unit-account" class="input">
                   <option value="seconds">Seconds</option>
                   <option value="minutes" selected>Minutes</option>
                   <option value="hours">Hours</option>
                 </select>
               </div>
+            </div>
+            <div class="form-group">
+              <label>Master Delay Between Full Rounds (Per-Round Timer)</label>
+              <div class="inline-inputs">
+                <input id="wait-value-round" class="input" type="number" min="0" max="240" value="30" />
+                <select id="wait-unit-round" class="input">
+                  <option value="seconds">Seconds</option>
+                  <option value="minutes" selected>Minutes</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </div>
+              <small style="color:var(--text-muted);display:block;margin-top:4px;">When set (&gt; 0), activates Wave Mode: IDs run 1-by-1 strictly sequentially (never 2 browsers open). After all IDs complete 1 listing, this master timer runs before the next round begins.</small>
             </div>
           </div>
 

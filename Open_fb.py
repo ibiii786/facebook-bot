@@ -909,7 +909,8 @@ def run_orchestrator(
     max_concurrent_browsers: int = 2,
     stop_event: Optional[threading.Event] = None,
     max_review_timeout: int = 1800,
-    distribution_mode: str = "round_robin"
+    distribution_mode: str = "round_robin",
+    wait_time_round: int = 0
 ) -> Dict[str, list]:
     """
     Asynchronous Multi-Account Orchestrator.
@@ -1013,6 +1014,80 @@ def run_orchestrator(
     total = LIVE_BOT_STATE['total_listings']
     log_live_message(f"🚀 Launching Orchestrator: {len(accounts)} Accounts, {total} Total Listings, Max {max_concurrent_browsers} Concurrent Browsers")
 
+    # ── Check if Master Per-Round Timer is Enabled ──
+    # If wait_time_round > 0, we strictly enforce Sequential Round-Robin (Wave Mode).
+    # In Wave Mode, 2 browsers NEVER open concurrently:
+    # Each ID runs 1 listing at a time, completely finishes and closes its browser,
+    # waits `wait_time_accounts` (e.g. 60s) before next ID opens.
+    # When ALL IDs have completed their 1 listing for the round,
+    # the master `wait_time_round` activates before Round 2 starts.
+    if wait_time_round > 0:
+        log_live_message(f"🌊 [Wave Mode Active] Master Round Timer = {wait_time_round}s. Enforcing strictly 1 browser at a time.")
+        max_round_items = max((len(a[1]) for a in assignments), default=0)
+        not_gen = {}
+
+        for round_num in range(1, max_round_items + 1):
+            if stop_event.is_set():
+                log_live_message("🛑 Bot stopped by user.")
+                break
+
+            log_live_message(f"🔄 ═══ Starting Round {round_num}/{max_round_items} ═══")
+
+            # Collect active targets for this round
+            for account_idx, (account, assigned) in enumerate(assignments):
+                if stop_event.is_set():
+                    break
+                if round_num - 1 >= len(assigned):
+                    continue
+
+                entry = assigned[round_num - 1]
+                email = account[0]
+
+                # Check if flagged
+                flagged_map = load_flagged_accounts()
+                if email in flagged_map:
+                    log_live_message(f"⚠️ [{email}] Skipped because account is flagged.")
+                    continue
+
+                # Ensure previous browser is completely closed before starting next
+                with _status_lock:
+                    LIVE_BOT_STATE["active_browsers"] = 1
+                try:
+                    success, msg = run_single_listing_to_account(
+                        entry=entry,
+                        target_account=email,
+                        marketplace_location=marketplace_location,
+                        stop_event=stop_event
+                    )
+                    if not success:
+                        if email not in not_gen:
+                            not_gen[email] = []
+                        t_name = entry[1].get() if len(entry) > 1 else f"Round {round_num}"
+                        not_gen[email].append(t_name)
+                finally:
+                    with _status_lock:
+                        LIVE_BOT_STATE["active_browsers"] = 0
+
+                # Inter-ID delay within the same round (e.g. 60 seconds)
+                if not stop_event.is_set() and account_idx < len(assignments) - 1:
+                    inter_delay = max(5, wait_time_accounts)
+                    log_live_message(f"⏳ Waiting {inter_delay}s before opening next account browser...")
+                    if not _interruptible_sleep(inter_delay, stop_event, email=email, state_label="Inter-Account Delay"):
+                        break
+
+            # If there are subsequent rounds, trigger the MASTER Per-Round Timer
+            if not stop_event.is_set() and round_num < max_round_items:
+                log_live_message(f"🛑 Round {round_num} complete on all IDs! Master timer running: waiting {wait_time_round}s before Round {round_num + 1}...")
+                if not _interruptible_sleep(wait_time_round, stop_event, state_label=f"Master Per-Round Wait (Round {round_num} -> {round_num + 1})"):
+                    break
+
+        with _status_lock:
+            LIVE_BOT_STATE["status"] = "idle"
+            LIVE_BOT_STATE["failed"] = not_gen
+        log_live_message("🏁 Wave Orchestrator finished all rounds.")
+        return not_gen
+
+    # Fallback to standard multi-threaded lifecycle if wait_time_round == 0
     semaphore = threading.Semaphore(max_concurrent_browsers)
     workers: List[AccountLifecycleWorker] = []
 
@@ -1045,8 +1120,6 @@ def run_orchestrator(
             max_review_timeout=max_review_timeout
         )
         workers.append(worker)
-
-
 
     # Stagger launch of worker threads with randomized jitter
     for w_idx, worker in enumerate(workers):
@@ -1082,27 +1155,29 @@ def run_orchestrator(
 
 
 
-def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None):
+def main(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None, wait_time_round=0):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
         stop_event=stop_event,
-        distribution_mode="interleaved"
+        distribution_mode="interleaved",
+        wait_time_round=wait_time_round
     )
 
 run_fb_bot = main
 
 
-def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None):
+def distribute_among_accounts(entries, time_sleep=1800, wait_time_accounts=2, marketplace_location="UK", stop_event=None, wait_time_round=0):
     return run_orchestrator(
         entries=entries,
         time_sleep=time_sleep,
         wait_time_accounts=wait_time_accounts,
         marketplace_location=marketplace_location,
         stop_event=stop_event,
-        distribution_mode="interleaved"
+        distribution_mode="interleaved",
+        wait_time_round=wait_time_round
     )
 
 
