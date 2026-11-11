@@ -2166,3 +2166,203 @@ async function postCardToAccount(id) {
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(populateCardAccountDropdowns, 1500);
 });
+
+
+// ── Automatic Title & Description Auto-Parser Engine ────────────────────────
+/**
+ * Intelligently extracts individual titles from raw input text.
+ * Handles 1-per-line, numbered formats (e.g. "1.", "1)", "Title 1:"),
+ * or custom separators (---, |||).
+ */
+function parseRawTitles(text) {
+  if (!text || !text.trim()) return [];
+  const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+  // If separated by custom delimiters
+  if (raw.includes('|||')) {
+    return raw.split('|||').map(s => s.trim().replace(/^[\d]+[\.\)\:\-]\s*/, '')).filter(Boolean);
+  }
+  if (raw.includes('\n---\n')) {
+    return raw.split(/\n---+\n/).map(s => s.trim().replace(/^[\d]+[\.\)\:\-]\s*/, '')).filter(Boolean);
+  }
+
+  // Line-by-line parsing
+  const lines = raw.split('\n');
+  const titles = [];
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+    // Strip leading numbering: "1.", "1)", "1 -", "[1]", "Title 1:"
+    line = line.replace(/^(?:title\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*|\[\d+\]\s*)/i, '').trim();
+    if (line) titles.push(line);
+  }
+  return titles;
+}
+
+/**
+ * Intelligently extracts individual descriptions from raw input text.
+ * Descriptions are multi-line paragraphs, so they can be separated by:
+ * - Explicit delimiters (|||, ---)
+ * - Blank lines (double newline)
+ * - Leading numbering (e.g. "1.", "Description 1:")
+ */
+function parseRawDescriptions(text) {
+  if (!text || !text.trim()) return [];
+  const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+  // 1. Explicit delimiter: |||
+  if (raw.includes('|||')) {
+    return raw.split('|||').map(s => s.trim().replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
+  }
+
+  // 2. Explicit delimiter: ---
+  if (raw.includes('\n---\n') || raw.includes('\n---')) {
+    return raw.split(/\n\s*---+\s*\n?/).map(s => s.trim().replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
+  }
+
+  // 3. Double newline (blank line between blocks)
+  const blankLineChunks = raw.split(/\n\s*\n+/).map(c => c.trim()).filter(Boolean);
+  if (blankLineChunks.length > 1) {
+    return blankLineChunks.map(c => c.replace(/^(?:description\s*\d*[\:\-]?\s*|\d+[\.\)\:\-]\s*)/i, '').trim()).filter(Boolean);
+  }
+
+  // 4. Numbered blocks: look for lines starting with "1.", "2.", "Description 1:"
+  const lines = raw.split('\n');
+  const blocks = [];
+  let currentBlock = [];
+
+  for (let line of lines) {
+    const isNewBlock = /^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i.test(line.trim());
+    if (isNewBlock && currentBlock.length > 0) {
+      blocks.push(currentBlock.join('\n').trim());
+      currentBlock = [];
+    }
+    const cleanLine = line.replace(/^(?:description\s*\d+[\:\-]?|\d+[\.\)\:\-])\s+/i, '');
+    currentBlock.push(cleanLine);
+  }
+  if (currentBlock.length > 0) {
+    blocks.push(currentBlock.join('\n').trim());
+  }
+
+  return blocks.filter(Boolean);
+}
+
+/**
+ * Validates counts and updates UI indicators live.
+ */
+function updateAutoParserCounts() {
+  const titlesText = document.getElementById('auto-parser-titles')?.value || '';
+  const descsText = document.getElementById('auto-parser-descriptions')?.value || '';
+
+  const titles = parseRawTitles(titlesText);
+  const descs = parseRawDescriptions(descsText);
+
+  const titlesCountEl = document.getElementById('parser-titles-count');
+  const descsCountEl = document.getElementById('parser-descs-count');
+  const badgeEl = document.getElementById('parser-match-status');
+  const msgEl = document.getElementById('parser-validation-msg');
+  const btnEl = document.getElementById('btn-create-parsed-listings');
+
+  if (titlesCountEl) titlesCountEl.textContent = `Detected: ${titles.length}`;
+  if (descsCountEl) descsCountEl.textContent = `Detected: ${descs.length}`;
+
+  if (titles.length === 0 && descs.length === 0) {
+    if (badgeEl) { badgeEl.textContent = 'Waiting for text...'; badgeEl.style.background = '#3b82f622'; badgeEl.style.color = '#3b82f6'; }
+    if (msgEl) { msgEl.textContent = 'Paste your titles and descriptions to begin.'; msgEl.style.color = 'var(--text-muted)'; }
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '✨ Generate Listings (0)'; }
+    return;
+  }
+
+  if (titles.length === descs.length && titles.length > 0) {
+    // Perfect Match
+    if (badgeEl) { badgeEl.textContent = `✅ Matched (${titles.length} Listings)`; badgeEl.style.background = '#22c55e22'; badgeEl.style.color = '#22c55e'; }
+    if (msgEl) { msgEl.textContent = `Ready! Exactly ${titles.length} titles and ${descs.length} descriptions matched.`; msgEl.style.color = '#22c55e'; }
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = `✨ Generate Listings (${titles.length})`; }
+  } else {
+    // Mismatch - Block Creation
+    const diff = Math.abs(titles.length - descs.length);
+    const issue = titles.length > descs.length ? `${diff} more title(s) than descriptions` : `${diff} more description(s) than titles`;
+    if (badgeEl) { badgeEl.textContent = `⚠️ Mismatch: ${titles.length} vs ${descs.length}`; badgeEl.style.background = '#ef444422'; badgeEl.style.color = '#ef4444'; }
+    if (msgEl) { msgEl.textContent = `Count mismatch (${issue}). Numbers must be equal to create listings.`; msgEl.style.color = '#ef4444'; }
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = `⚠️ Fix Mismatch (${titles.length} vs ${descs.length})`; }
+  }
+}
+
+/**
+ * Clear the text inputs
+ */
+function clearAutoParserInputs() {
+  const tEl = document.getElementById('auto-parser-titles');
+  const dEl = document.getElementById('auto-parser-descriptions');
+  if (tEl) tEl.value = '';
+  if (dEl) dEl.value = '';
+  updateAutoParserCounts();
+}
+
+/**
+ * Generate product listing cards from parsed titles and descriptions
+ */
+function generateListingsFromAutoParser() {
+  const titlesText = document.getElementById('auto-parser-titles')?.value || '';
+  const descsText = document.getElementById('auto-parser-descriptions')?.value || '';
+
+  const titles = parseRawTitles(titlesText);
+  const descs = parseRawDescriptions(descsText);
+
+  if (titles.length === 0 || descs.length === 0) {
+    alert('Please paste both titles and descriptions.');
+    return;
+  }
+
+  if (titles.length !== descs.length) {
+    alert(`Cannot create listings: You have ${titles.length} titles and ${descs.length} descriptions. Both counts must be strictly equal.`);
+    return;
+  }
+
+  const count = titles.length;
+  for (let i = 0; i < count; i++) {
+    addField();
+    const entry = entries[entries.length - 1];
+    const id = entry.id;
+    const defaults = getDefaults();
+
+    // 1. Title
+    const titleInput = document.getElementById(`title-${id}`);
+    if (titleInput) titleInput.value = titles[i];
+
+    // 2. Description
+    const descInput = document.getElementById(`desc-${id}`);
+    if (descInput) descInput.value = descs[i];
+
+    // 3. Auto-assigned random price from range
+    const priceInput = document.getElementById(`price-${id}`);
+    if (priceInput) priceInput.value = defaults.price;
+
+    // 4. Auto-assigned random location from pool
+    const locInput = document.getElementById(`location-${id}`);
+    const randomLoc = getRandomLocation();
+    if (locInput && randomLoc) locInput.value = randomLoc;
+
+    // 5. Default category, condition, availability
+    const catInput = document.getElementById(`category-${id}`);
+    if (catInput) catInput.value = defaults.category;
+
+    const condInput = document.getElementById(`condition-${id}`);
+    if (condInput) condInput.value = defaults.condition;
+
+    const availInput = document.getElementById(`availability-${id}`);
+    if (availInput) availInput.value = defaults.availability;
+
+    // 6. Default tags extracted from title words
+    const tagsInput = document.getElementById(`tags-${id}`);
+    if (tagsInput) {
+      const words = titles[i].split(/\s+/).map(w => w.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()).filter(w => w.length > 2);
+      tagsInput.value = [...new Set(words)].slice(0, 10).join(', ');
+    }
+  }
+
+  // Clear inputs and switch user to Products tab to view generated cards
+  clearAutoParserInputs();
+  switchTab('tab-products');
+  setStatus(`Generated ${count} new listing cards with titles, descriptions, prices & locations!`, 'success');
+}
