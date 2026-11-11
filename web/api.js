@@ -132,6 +132,11 @@ async function runBot() {
     }
 
     // ── Step 2: Collect all entries and filter out already-posted ones ──
+    // Reset sequential location counter before collection so empty fields get ordered assignment
+    if (typeof nextSequentialLocationIndex !== 'undefined') {
+      nextSequentialLocationIndex = 0;
+    }
+
     const allListings = entries.map(collectEntryData);
     const pendingListings = allListings.filter(listing => {
       // A listing is "done" if it's posted on ALL accounts that have it in saved_states

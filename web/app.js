@@ -511,12 +511,21 @@ function getDefaults() {
   };
 }
 
-function getRandomLocation() {
+// Track sequential location assignment index
+let nextSequentialLocationIndex = 0;
+
+function getNextSequentialLocation() {
   const poolEl = document.getElementById('location-pool');
   if (!poolEl || !poolEl.value.trim()) return '';
   const locs = poolEl.value.split('|').map(s => s.trim()).filter(Boolean);
   if (locs.length === 0) return '';
-  return locs[Math.floor(Math.random() * locs.length)];
+  const chosen = locs[nextSequentialLocationIndex % locs.length];
+  nextSequentialLocationIndex++;
+  return chosen;
+}
+
+function getRandomLocation() {
+  return getNextSequentialLocation();
 }
 
 // Add Product Card
@@ -2394,6 +2403,9 @@ function generateListingsFromAutoParser() {
     return;
   }
 
+  // Reset sequential location counter for fresh top-to-bottom assignment
+  nextSequentialLocationIndex = 0;
+
   const count = titles.length;
   for (let i = 0; i < count; i++) {
     addField();
@@ -2414,10 +2426,10 @@ function generateListingsFromAutoParser() {
     const priceInput = document.getElementById(`price-${id}`);
     if (priceInput) priceInput.value = defaults.price;
 
-    // 4. Auto-assigned random location from pool
+    // 4. Auto-assigned sequential location from pool (one-by-one in exact order)
     const locInput = document.getElementById(`location-${id}`);
-    const randomLoc = getRandomLocation();
-    if (locInput && randomLoc) locInput.value = randomLoc;
+    const seqLoc = getNextSequentialLocation();
+    if (locInput && seqLoc) locInput.value = seqLoc;
 
     // 5. Default category, condition, availability
     const catInput = document.getElementById(`category-${id}`);

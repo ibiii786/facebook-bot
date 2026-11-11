@@ -836,7 +836,12 @@ def run_single_listing_to_account(
         product_tags = [tag.strip() for tag in tags_entry.get().split(",") if tag.strip()]
         images = [img.get() for img in img_entries if img.get()]
         video = video_entry.get().strip()
-        loc = location_entry.get().strip() if len(entry) > 4 else ""
+        loc_raw = location_entry.get().strip() if len(entry) > 4 else ""
+        if "|" in loc_raw:
+            loc_candidates = [s.strip() for s in loc_raw.split("|") if s.strip()]
+            loc = loc_candidates[0] if loc_candidates else ""
+        else:
+            loc = loc_raw
 
         log_live_message(f"📝 [Single Listing] Posting '{post_title}' directly to '{display_name}'...")
         update_account_state(email, state="NAVIGATING", details=f"Navigating to Marketplace for '{post_title}'...", fb_name=display_name)
